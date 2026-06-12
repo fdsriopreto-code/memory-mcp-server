@@ -1,0 +1,49 @@
+services:
+  mcp-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mcp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mcp_user
+      POSTGRES_PASSWORD: mcp_password
+      POSTGRES_DB: mcp_db
+    volumes:
+      - mcp_postgres_data:/var/lib/postgresql/data
+    networks:
+      - mcp-network
+      - easypanel  # rede interna da VPS para acessar outros projetos
+
+  mcp-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: mcp-server
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3100:3100"
+    depends_on:
+      - mcp-postgres
+    networks:
+      - mcp-network
+      - easypanel
+
+  mcp-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mcp-frontend
+    restart: unless-stopped
+    ports:
+      - "3101:80"
+    networks:
+      - mcp-network
+
+volumes:
+  mcp_postgres_data:
+
+networks:
+  mcp-network:
+    driver: bridge
+  easypanel:
+    external: true  # rede Docker interna já existente na VPS

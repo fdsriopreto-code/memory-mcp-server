@@ -1,0 +1,220 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { prisma } from "../config/database.js";
+import { getEmbedding } from "../services/embedding.service.js";
+import { logAudit } from "./audit.js";
+
+type MemoryRow = {
+  id: string;
+  title: string;
+  content: string;
+  type: string;
+  tags: string[];
+  importance: number;
+  similarity: number;
+  created_at: Date;
+};
+
+export function registerMemoryTools(server: McpServer) {
+
+  // ── Busca semântica ──────────────────────────────────────────────────────────
+  server.tool(
+    "memory_search",
+    "Busca memórias por similaridade semântica dentro de um projeto",
+    {
+      project: z.string().describe("Slug do projeto (ex: ile-manager, operax)"),
+      query:   z.string().describe("Texto da busca — descreva o que quer encontrar"),
+      limit:   z.number().min(1).max(20).default(5).describe("Número máximo de resultados"),
+      type:    z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"])
+               .optional().describe("Filtrar por tipo de memória"),
+    },
+    async ({ project, query, limit, type }) => {
+      const proj = await prisma.project.findUnique({ where: { slug: project } });
+      if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
+
+      const embedding = await getEmbedding(query);
+      const vectorStr = `[${embedding.join(",")}]`;
+
+      const typeFilter = type ? `AND m.type = '${type}'` : "";
+      const results = await prisma.$queryRaw<MemoryRow[]>`
+        SELECT m.id, m.title, m.content, m.type, m.tags, m.importance, m.created_at,
+               1 - (m.embedding <=> ${vectorStr}::vector) as similarity
+        FROM memories m
+        WHERE m.project_id = ${proj.id}
+          AND m.embedding IS NOT NULL
+          ${typeFilter ? prisma.$queryRaw`AND m.type = ${type}` : prisma.$queryRaw``}
+        ORDER BY m.embedding <=> ${vectorStr}::vector
+        LIMIT ${limit}
+      `;
+
+      // Atualiza access_count e accessed_at
+      if (results.length > 0) {
+        await prisma.memory.updateMany({
+          where: { id: { in: results.map(r => r.id) } },
+          data: { accessCount: { increment: 1 }, accessedAt: new Date() },
+        });
+      }
+
+      await logAudit(proj.id, "memory_search", { project, query, limit, type }, `${results.length} resultados`);
+
+      const text = results.length === 0
+        ? "Nenhuma memória encontrada para essa busca."
+        : results.map((r, i) =>
+            `## ${i + 1}. [${r.type}] ${r.title}\n` +
+            `Relevância: ${(r.similarity * 100).toFixed(0)}% | Tags: ${r.tags.join(", ") || "—"} | Importância: ${r.importance}/5\n\n` +
+            r.content
+          ).join("\n\n---\n\n");
+
+      return { content: [{ type: "text" as const, text }] };
+    }
+  );
+
+  // ── Adicionar memória ────────────────────────────────────────────────────────
+  server.tool(
+    "memory_add",
+    "Salva uma nova memória persistente no projeto",
+    {
+      project:    z.string().describe("Slug do projeto"),
+      type:       z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"]),
+      title:      z.string().describe("Título curto e descritivo"),
+      content:    z.string().describe("Conteúdo completo da memória"),
+      tags:       z.array(z.string()).default([]).describe("Tags para categorização"),
+      importance: z.number().min(1).max(5).default(3).describe("Importância de 1 a 5"),
+    },
+    async ({ project, type, title, content, tags, importance }) => {
+      const proj = await prisma.project.findUnique({ where: { slug: project } });
+      if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
+
+      const memory = await prisma.memory.create({
+        data: { projectId: proj.id, type, title, content, tags, importance },
+      });
+
+      // Gera embedding de forma assíncrona (não bloqueia a resposta)
+      setImmediate(async () => {
+        try {
+          const embedding = await getEmbedding(`${title}\n\n${content}`);
+          await prisma.$executeRaw`
+            UPDATE memories SET embedding = ${`[${embedding.join(",")}]`}::vector WHERE id = ${memory.id}
+          `;
+        } catch (e) {
+          console.error("[Embedding] Erro ao gerar:", e);
+        }
+      });
+
+      await logAudit(proj.id, "memory_add", { project, type, title }, `ID: ${memory.id}`);
+      return { content: [{ type: "text" as const, text: `Memória salva com sucesso! ID: ${memory.id}` }] };
+    }
+  );
+
+  // ── Atualizar memória ────────────────────────────────────────────────────────
+  server.tool(
+    "memory_update",
+    "Atualiza uma memória existente pelo ID",
+    {
+      id:         z.string().describe("ID da memória"),
+      title:      z.string().optional(),
+      content:    z.string().optional(),
+      tags:       z.array(z.string()).optional(),
+      importance: z.number().min(1).max(5).optional(),
+    },
+    async ({ id, title, content, tags, importance }) => {
+      const memory = await prisma.memory.findUnique({ where: { id } });
+      if (!memory) return { content: [{ type: "text" as const, text: "Memória não encontrada." }] };
+
+      await prisma.memory.update({ where: { id }, data: { title, content, tags, importance } });
+
+      if (content || title) {
+        setImmediate(async () => {
+          try {
+            const newTitle   = title   ?? memory.title;
+            const newContent = content ?? memory.content;
+            const embedding  = await getEmbedding(`${newTitle}\n\n${newContent}`);
+            await prisma.$executeRaw`
+              UPDATE memories SET embedding = ${`[${embedding.join(",")}]`}::vector WHERE id = ${id}
+            `;
+          } catch (e) {
+            console.error("[Embedding] Erro ao atualizar:", e);
+          }
+        });
+      }
+
+      return { content: [{ type: "text" as const, text: `Memória ${id} atualizada.` }] };
+    }
+  );
+
+  // ── Contexto do projeto ──────────────────────────────────────────────────────
+  server.tool(
+    "project_context",
+    "Retorna snapshot do projeto: top memórias por importância + tasks abertas. Use no início de cada conversa.",
+    {
+      project: z.string().describe("Slug do projeto"),
+    },
+    async ({ project }) => {
+      const proj = await prisma.project.findUnique({ where: { slug: project } });
+      if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
+
+      const [memories, tasks] = await Promise.all([
+        prisma.memory.findMany({
+          where: { projectId: proj.id },
+          orderBy: [{ importance: "desc" }, { accessCount: "desc" }],
+          take: 10,
+          select: { id: true, type: true, title: true, content: true, tags: true, importance: true },
+        }),
+        prisma.task.findMany({
+          where: { projectId: proj.id, status: { in: ["OPEN", "IN_PROGRESS"] } },
+          orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+          take: 10,
+        }),
+      ]);
+
+      const memoriesText = memories.map(m =>
+        `### [${m.type}] ${m.title} (importância: ${m.importance}/5)\n${m.content}`
+      ).join("\n\n---\n\n");
+
+      const tasksText = tasks.length === 0
+        ? "Nenhuma task aberta."
+        : tasks.map(t => `- [${t.priority}] ${t.title} (${t.status})${t.description ? `: ${t.description}` : ""}`).join("\n");
+
+      const text =
+        `# Contexto: ${proj.name}\n\n` +
+        `${proj.description ?? ""}\n\n` +
+        `## Memórias principais (${memories.length})\n\n${memoriesText}\n\n` +
+        `## Tasks abertas\n\n${tasksText}`;
+
+      await logAudit(proj.id, "project_context", { project }, `${memories.length} memórias, ${tasks.length} tasks`);
+      return { content: [{ type: "text" as const, text }] };
+    }
+  );
+
+  // ── Listar memórias ──────────────────────────────────────────────────────────
+  server.tool(
+    "memory_list",
+    "Lista memórias de um projeto com filtros opcionais",
+    {
+      project: z.string(),
+      type:    z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"]).optional(),
+      tag:     z.string().optional().describe("Filtrar por tag"),
+      limit:   z.number().default(20),
+    },
+    async ({ project, type, tag, limit }) => {
+      const proj = await prisma.project.findUnique({ where: { slug: project } });
+      if (!proj) return { content: [{ type: "text" as const, text: "Projeto não encontrado." }] };
+
+      const memories = await prisma.memory.findMany({
+        where: {
+          projectId: proj.id,
+          ...(type ? { type } : {}),
+          ...(tag   ? { tags: { has: tag } } : {}),
+        },
+        orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
+        take: limit,
+      });
+
+      const text = memories.map(m =>
+        `- [${m.id}] [${m.type}] **${m.title}** (imp: ${m.importance}) tags: ${m.tags.join(", ") || "—"}`
+      ).join("\n");
+
+      return { content: [{ type: "text" as const, text: text || "Nenhuma memória encontrada." }] };
+    }
+  );
+}
