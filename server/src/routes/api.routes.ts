@@ -185,9 +185,9 @@ apiRoutes.get("/stats", async (_req, res) => {
       },
     }),
     prisma.$queryRaw<{ day: Date; count: bigint }[]>`
-      SELECT DATE_TRUNC('day', "createdAt") AS day, COUNT(*) AS count
-      FROM "AuditLog"
-      WHERE "createdAt" > NOW() - INTERVAL '14 days'
+      SELECT DATE_TRUNC('day', created_at) AS day, COUNT(*) AS count
+      FROM audit_logs
+      WHERE created_at > NOW() - INTERVAL '14 days'
       GROUP BY day ORDER BY day ASC
     `,
     prisma.auditLog.count({ where: { tool: "memory_search" } }),
