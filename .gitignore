@@ -6,3 +6,5 @@ dist/
 *.log
 frontend/dist/
 server/dist/
+frontend/src/**/*.js
+frontend/src/**/*.js.map

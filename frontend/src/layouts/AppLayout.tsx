@@ -3,9 +3,11 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useWs } from "../contexts/WsContext";
 import type { AuditLog } from "../hooks/useLiveAudit";
+import ClaudeWidget from "../components/ClaudeWidget";
 
 const NAV = [
   { to: "/",               label: "Dashboard",   icon: "◈"  },
+  { to: "/agents",         label: "Agentes",     icon: "⬤"  },
   { to: "/projects",       label: "Projetos",    icon: "⬡"  },
   { to: "/memories",       label: "Memórias",    icon: "◉"  },
   { to: "/tasks",          label: "Tasks",       icon: "✓"  },
@@ -84,7 +86,7 @@ export default function AppLayout() {
             >
               <span className="text-base w-5 text-center shrink-0">{icon}</span>
               <span className="flex-1">{label}</span>
-              {to === "/audit" && claudeActive && (
+              {(to === "/audit" || to === "/agents") && claudeActive && (
                 <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
               )}
             </NavLink>
@@ -115,6 +117,8 @@ export default function AppLayout() {
           <Outlet />
         </div>
       </main>
+
+      <ClaudeWidget />
     </div>
   );
 }
