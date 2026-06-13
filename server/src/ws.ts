@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
-import { verify } from "jsonwebtoken";
+import pkg from "jsonwebtoken";
+const { verify } = pkg;
 import { env } from "./config/env.js";
 
 let wss: WebSocketServer | null = null;
