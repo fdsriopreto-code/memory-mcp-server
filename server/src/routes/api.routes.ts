@@ -38,13 +38,18 @@ apiRoutes.get("/projects/:slug", async (req, res) => {
 
 // ── Conexões ──────────────────────────────────────────────────────────────────
 apiRoutes.post("/projects/:slug/connections", async (req, res) => {
-  const { name, type, connectionString } = req.body;
-  const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
-  if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
-  const conn = await prisma.projectConnection.create({
-    data: { projectId: proj.id, name, type, connectionString: encrypt(connectionString) },
-  });
-  res.status(201).json({ id: conn.id, name: conn.name, type: conn.type, isActive: conn.isActive });
+  try {
+    const { name, type, connectionString } = req.body;
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
+    const conn = await prisma.projectConnection.create({
+      data: { projectId: proj.id, name, type, connectionString: encrypt(connectionString) },
+    });
+    res.status(201).json({ id: conn.id, name: conn.name, type: conn.type, isActive: conn.isActive });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
+  }
 });
 
 apiRoutes.delete("/connections/:id", async (req, res) => {
