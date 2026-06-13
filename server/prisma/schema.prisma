@@ -140,6 +140,20 @@ enum TaskPriority {
   @@map("task_priority")
 }
 
+model ExternalService {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  displayName   String   @map("display_name")
+  apiUrl        String   @map("api_url")
+  adminEmail    String   @map("admin_email")
+  adminPassword String   @map("admin_password")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("external_services")
+}
+
 model AuditLog {
   id            String   @id @default(cuid())
   projectId     String?  @map("project_id")

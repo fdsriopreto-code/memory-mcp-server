@@ -14,6 +14,7 @@ const NAV = [
   { to: "/write-requests", label: "Write Reqs",  icon: "✎"  },
   { to: "/audit",          label: "Atividade",   icon: "◎"  },
   { to: "/logs",           label: "Logs",        icon: "▸"  },
+  { to: "/services",       label: "Serviços",    icon: "⬡"  },
 ];
 
 export default function AppLayout() {

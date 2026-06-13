@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../config/database.js";
 import { jwtAuth } from "../middleware/auth.js";
-import { encrypt } from "../services/crypto.service.js";
+import { encrypt, decrypt } from "../services/crypto.service.js";
 import { executeWrite } from "../services/connection.service.js";
 import { broadcast } from "../ws.js";
 import { getLogBuffer } from "../logger.js";
@@ -221,6 +221,59 @@ apiRoutes.get("/stats", async (_req, res) => {
     activityByDay:   activityByDay.map(a => ({ day: a.day.toISOString().split("T")[0], count: Number(a.count) })),
     embeddings: { estimatedTokens, estimatedCostUSD, searchCount, memoriesWithEmbeddings: totalMemories },
   });
+});
+
+// ── External Services ─────────────────────────────────────────────────────────
+apiRoutes.get("/external-services", async (_req, res) => {
+  const services = await prisma.externalService.findMany({
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, displayName: true, apiUrl: true, adminEmail: true, isActive: true, createdAt: true },
+  });
+  res.json(services);
+});
+
+apiRoutes.post("/external-services", async (req, res) => {
+  const { name, displayName, apiUrl, adminEmail, adminPassword } = req.body;
+  const svc = await prisma.externalService.create({
+    data: { name, displayName, apiUrl, adminEmail, adminPassword: encrypt(adminPassword) },
+    select: { id: true, name: true, displayName: true, apiUrl: true, adminEmail: true, isActive: true, createdAt: true },
+  });
+  res.status(201).json(svc);
+});
+
+apiRoutes.patch("/external-services/:id", async (req, res) => {
+  const { name, displayName, apiUrl, adminEmail, adminPassword, isActive } = req.body;
+  const data: Record<string, unknown> = { name, displayName, apiUrl, adminEmail, isActive };
+  if (adminPassword) data.adminPassword = encrypt(adminPassword);
+  const svc = await prisma.externalService.update({
+    where: { id: req.params.id },
+    data,
+    select: { id: true, name: true, displayName: true, apiUrl: true, adminEmail: true, isActive: true, createdAt: true },
+  });
+  res.json(svc);
+});
+
+apiRoutes.delete("/external-services/:id", async (req, res) => {
+  await prisma.externalService.delete({ where: { id: req.params.id } });
+  res.json({ ok: true });
+});
+
+apiRoutes.post("/external-services/:id/test", async (req, res) => {
+  const svc = await prisma.externalService.findUnique({ where: { id: req.params.id } });
+  if (!svc) { res.status(404).json({ error: "Não encontrado" }); return; }
+  try {
+    const password = decrypt(svc.adminPassword);
+    const r = await fetch(`${svc.apiUrl}/api/platform-admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: svc.adminEmail, password }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!r.ok) { res.status(400).json({ ok: false, error: `Login retornou HTTP ${r.status}` }); return; }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
 });
 
 // ── Server Logs ───────────────────────────────────────────────────────────────
