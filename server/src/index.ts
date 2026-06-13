@@ -57,11 +57,17 @@ app.use("/api",  apiRoutes);
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
   const keyHex = process.env.ENCRYPTION_KEY ?? "";
+  const adminEmail = process.env.ADMIN_EMAIL ?? "";
+  const adminPwd = process.env.ADMIN_PASSWORD ?? "";
   res.json({
     ok: true,
     ts: new Date().toISOString(),
     encKeyLen: keyHex.length,
     encKeyValid: keyHex.length === 64 && /^[0-9a-fA-F]+$/.test(keyHex),
+    adminEmailLen: adminEmail.length,
+    adminEmailTrimmed: adminEmail.trim().length,
+    adminPwdLen: adminPwd.length,
+    adminPwdTrimmed: adminPwd.trim().length,
   });
 });
 

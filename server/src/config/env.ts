@@ -1,7 +1,7 @@
 const required = (key: string): string => {
   const val = process.env[key];
   if (!val) throw new Error(`Variável de ambiente obrigatória não definida: ${key}`);
-  return val;
+  return val.trim();
 };
 
 export const env = {

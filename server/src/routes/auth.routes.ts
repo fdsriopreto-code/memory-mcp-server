@@ -12,7 +12,7 @@ authRoutes.post("/login", (req, res) => {
     return;
   }
 
-  if (email !== env.ADMIN_EMAIL || password !== env.ADMIN_PASSWORD) {
+  if (email.trim().toLowerCase() !== env.ADMIN_EMAIL.toLowerCase() || password !== env.ADMIN_PASSWORD) {
     res.status(401).json({ error: "Credenciais inválidas" });
     return;
   }
