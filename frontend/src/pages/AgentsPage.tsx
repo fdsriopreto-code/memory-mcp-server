@@ -36,17 +36,22 @@ function relTime(d: string) {
   return `${Math.floor(s/3600)}h`;
 }
 
-// ── Agent "burst" — group of rapid consecutive tool calls ────────────────────
+// ── Agent "burst" — group of tool calls from the same session ────────────────
 type Burst = {
   id: string;
   logs: AuditLog[];
   lastTs: number;
-  projectSlug: string | null;
+  sessionId: string | null;   // real MCP session ID when available
+  projectSlug: string | null; // fallback grouping key
   accent: string;
 };
 
 const ACCENTS = ["#6366f1","#10b981","#f59e0b","#ec4899","#3b82f6","#f97316"];
 let burstCounter = 0;
+
+function shortSession(sid: string) {
+  return sid.slice(0, 8).toUpperCase();
+}
 
 // ── Robot SVG ─────────────────────────────────────────────────────────────────
 function Robot({ active, size, accent }: { active: boolean; size: number; accent: string }) {
@@ -174,10 +179,16 @@ function BurstCard({ burst, index }: { burst: Burst; index: number }) {
           <Robot active={active} size={56} accent={burst.accent}/>
 
           <div className="flex-1 min-w-0 pt-1">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                 Agente {index + 1}
               </span>
+              {burst.sessionId && (
+                <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border"
+                  style={{ color: burst.accent, borderColor: `${burst.accent}44`, background: `${burst.accent}11` }}>
+                  {shortSession(burst.sessionId)}
+                </span>
+              )}
               {active && (
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
@@ -262,10 +273,10 @@ export default function AgentsPage() {
       const pSlug = log.project?.slug ?? "__global";
 
       setBursts(prev => {
-        // Find existing burst for this project slug within the burst window
-        const existing = prev.find(b =>
-          b.projectSlug === pSlug && now - b.lastTs < BURST_WINDOW
-        );
+        // Prefer matching by sessionId (precise); fall back to project+time window
+        const existing = log.sessionId
+          ? prev.find(b => b.sessionId === log.sessionId)
+          : prev.find(b => !b.sessionId && b.projectSlug === pSlug && now - b.lastTs < BURST_WINDOW);
 
         if (existing) {
           lastTs.current[existing.id] = now;
@@ -276,11 +287,12 @@ export default function AgentsPage() {
         }
 
         // Create new burst
-        const id    = `burst-${++burstCounter}`;
+        const id     = `burst-${++burstCounter}`;
         const accent = ACCENTS[(burstCounter - 1) % ACCENTS.length];
         lastTs.current[id] = now;
         const newBurst: Burst = {
           id, logs: [log], lastTs: now,
+          sessionId: log.sessionId ?? null,
           projectSlug: pSlug,
           accent,
         };
@@ -404,6 +416,11 @@ export default function AgentsPage() {
                     style={{ background: `${tColor(l.tool)}22`, color: tColor(l.tool) }}>
                     {l.tool}
                   </span>
+                  {l.sessionId && (
+                    <span className="text-[9px] font-mono text-gray-700 shrink-0">
+                      {l.sessionId.slice(0, 6).toUpperCase()}
+                    </span>
+                  )}
                   {l.project && (
                     <span className="text-[10px] text-gray-600 shrink-0 truncate max-w-[6rem]">
                       {l.project.name}

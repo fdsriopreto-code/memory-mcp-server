@@ -8,6 +8,7 @@ import { handleMcpRequest } from "./server.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { apiRoutes } from "./routes/api.routes.js";
 import { initWss } from "./ws.js";
+import { requestCtx } from "./context.js";
 
 const app = express();
 const server = createServer(app);
@@ -24,8 +25,14 @@ app.use((req, _res, next) => {
 });
 
 // ── MCP endpoint (Claude Code) ────────────────────────────────────────────────
-app.post("/mcp",    mcpAuth, handleMcpRequest);
-app.get("/mcp",     mcpAuth, handleMcpRequest);
+app.post("/mcp", mcpAuth, (req, res) => {
+  const sid = (req.headers["mcp-session-id"] as string) ?? null;
+  requestCtx.run({ sessionId: sid }, () => handleMcpRequest(req, res));
+});
+app.get("/mcp", mcpAuth, (req, res) => {
+  const sid = (req.headers["mcp-session-id"] as string) ?? null;
+  requestCtx.run({ sessionId: sid }, () => handleMcpRequest(req, res));
+});
 app.delete("/mcp",  mcpAuth, (_req, res) => res.status(405).end());
 
 // ── REST API (painel frontend) ─────────────────────────────────────────────────

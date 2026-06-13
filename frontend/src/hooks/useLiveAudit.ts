@@ -8,6 +8,7 @@ export type AuditLog = {
   input: unknown;
   outputSummary: string | null;
   createdAt: string;
+  sessionId: string | null;
   project: { name: string; slug: string; color: string } | null;
 };
 

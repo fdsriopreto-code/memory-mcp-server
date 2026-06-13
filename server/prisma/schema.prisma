@@ -143,6 +143,7 @@ enum TaskPriority {
 model AuditLog {
   id            String   @id @default(cuid())
   projectId     String?  @map("project_id")
+  sessionId     String?  @map("session_id")
   tool          String
   input         Json
   outputSummary String?  @map("output_summary")

@@ -41,7 +41,8 @@ function relTime(d: string) {
 type AgentSlot = {
   id: number;
   log: AuditLog;
-  ts: number;          // last activity timestamp
+  ts: number;               // last activity timestamp
+  sessionId: string | null; // MCP session ID when available
 };
 
 // ── Robot SVG ─────────────────────────────────────────────────────────────────
@@ -177,9 +178,11 @@ function AgentCard({ slot, index }: { slot: AgentSlot; index: number }) {
           <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: toolColor(slot.log.tool) }}/>
           <p className="text-[11px] font-semibold text-white truncate">{toolLabel(slot.log.tool)}</p>
         </div>
-        {slot.log.project && (
-          <p className="text-[10px] truncate mt-0.5" style={{ color: accent }}>{slot.log.project.name}</p>
-        )}
+        <p className="text-[10px] truncate mt-0.5" style={{ color: accent }}>
+          {slot.sessionId
+            ? `Sessão ${slot.sessionId.slice(0, 8).toUpperCase()}`
+            : (slot.log.project?.name ?? "—")}
+        </p>
         {active && <div className="mt-1"><Dots color={accent}/></div>}
       </div>
       <span className="text-[10px] text-gray-700 tabular-nums shrink-0">{relTime(slot.log.createdAt)}</span>
@@ -211,28 +214,30 @@ export default function ClaudeWidget() {
       // Update activity log
       setLogs(prev => [log, ...prev].slice(0, 6));
 
-      // Multi-agent: find an "open slot" (agent that was active < 800ms ago = parallel call)
-      // or create a new slot if enough time has passed
+      // Multi-agent: group by sessionId when available; fall back to time-window heuristic
       setAgents(prev => {
-        const PARALLEL_WINDOW = 1200; // ms — calls within this window = same agent wave
-        // Check if there's a slot that received a call very recently
-        const recentSlot = prev.find(s => now - s.ts < PARALLEL_WINDOW);
-        if (recentSlot) {
-          // Could be another agent — check if it's a DIFFERENT tool call type
-          const isDifferentAgent = prev.some(s => now - s.ts < PARALLEL_WINDOW && s.log.id !== log.id);
-          if (isDifferentAgent && prev.length < 3) {
-            // Add a new agent slot
-            return [...prev, { id: ++_agentIdCounter, log, ts: now }].slice(-3);
+        if (log.sessionId) {
+          const existing = prev.find(s => s.sessionId === log.sessionId);
+          if (existing) {
+            return prev.map(s => s.id === existing.id ? { ...s, log, ts: now } : s);
           }
-          // Same agent (sequential calls) — update the most recent slot
+          return [...prev, { id: ++_agentIdCounter, log, ts: now, sessionId: log.sessionId }].slice(-3);
+        }
+        // No session ID — heuristic: parallel calls within 1200ms = multiple agents
+        const PARALLEL_WINDOW = 1200;
+        const recentSlot = prev.find(s => !s.sessionId && now - s.ts < PARALLEL_WINDOW);
+        if (recentSlot) {
+          const isDifferentAgent = prev.some(s => !s.sessionId && now - s.ts < PARALLEL_WINDOW && s.log.id !== log.id);
+          if (isDifferentAgent && prev.length < 3) {
+            return [...prev, { id: ++_agentIdCounter, log, ts: now, sessionId: null }].slice(-3);
+          }
           return prev.map(s => s.id === recentSlot.id ? { ...s, log, ts: now } : s);
         }
-        // No recent slot — replace oldest/inactive slot or add new
-        const inactive = prev.find(s => now - s.ts >= PARALLEL_WINDOW);
+        const inactive = prev.find(s => !s.sessionId && now - s.ts >= PARALLEL_WINDOW);
         if (inactive) {
           return prev.map(s => s.id === inactive.id ? { ...s, log, ts: now } : s);
         }
-        return [{ id: ++_agentIdCounter, log, ts: now }];
+        return [{ id: ++_agentIdCounter, log, ts: now, sessionId: null }];
       });
     });
   }, [subscribe]);
