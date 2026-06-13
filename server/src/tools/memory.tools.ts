@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database.js";
 import { getEmbedding } from "../services/embedding.service.js";
 import { logAudit } from "./audit.js";
@@ -35,17 +36,17 @@ export function registerMemoryTools(server: McpServer) {
       const embedding = await getEmbedding(query);
       const vectorStr = `[${embedding.join(",")}]`;
 
-      const typeFilter = type ? `AND m.type = '${type}'` : "";
-      const results = await prisma.$queryRaw<MemoryRow[]>`
+      const typeCondition = type ? Prisma.sql`AND m.type = ${type}` : Prisma.empty;
+      const results = await prisma.$queryRaw<MemoryRow[]>(Prisma.sql`
         SELECT m.id, m.title, m.content, m.type, m.tags, m.importance, m.created_at,
                1 - (m.embedding <=> ${vectorStr}::vector) as similarity
         FROM memories m
         WHERE m.project_id = ${proj.id}
           AND m.embedding IS NOT NULL
-          ${typeFilter ? prisma.$queryRaw`AND m.type = ${type}` : prisma.$queryRaw``}
+          ${typeCondition}
         ORDER BY m.embedding <=> ${vectorStr}::vector
         LIMIT ${limit}
-      `;
+      `);
 
       // Atualiza access_count e accessed_at
       if (results.length > 0) {
