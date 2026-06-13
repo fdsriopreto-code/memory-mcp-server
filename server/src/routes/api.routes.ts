@@ -147,6 +147,67 @@ apiRoutes.patch("/write-requests/:id/reject", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Stats ─────────────────────────────────────────────────────────────────────
+apiRoutes.get("/stats", async (_req, res) => {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const [
+    totalProjects,
+    totalMemories,
+    totalTasks,
+    totalAuditLogs,
+    logsToday,
+    memoriesByType,
+    tasksByStatus,
+    tasksByPriority,
+    topTools,
+    mostAccessed,
+    activityByDay,
+    searchCount,
+  ] = await Promise.all([
+    prisma.project.count(),
+    prisma.memory.count(),
+    prisma.task.count(),
+    prisma.auditLog.count(),
+    prisma.auditLog.count({ where: { createdAt: { gte: todayStart } } }),
+    prisma.memory.groupBy({ by: ["type"], _count: { id: true } }),
+    prisma.task.groupBy({ by: ["status"], _count: { id: true } }),
+    prisma.task.groupBy({ by: ["priority"], _count: { id: true } }),
+    prisma.auditLog.groupBy({ by: ["tool"], _count: { id: true }, orderBy: { _count: { id: "desc" } }, take: 8 }),
+    prisma.memory.findMany({
+      where: { accessCount: { gt: 0 } },
+      orderBy: { accessCount: "desc" },
+      take: 5,
+      select: {
+        id: true, title: true, type: true, accessCount: true,
+        project: { select: { name: true, color: true } },
+      },
+    }),
+    prisma.$queryRaw<{ day: Date; count: bigint }[]>`
+      SELECT DATE_TRUNC('day', "createdAt") AS day, COUNT(*) AS count
+      FROM "AuditLog"
+      WHERE "createdAt" > NOW() - INTERVAL '14 days'
+      GROUP BY day ORDER BY day ASC
+    `,
+    prisma.auditLog.count({ where: { tool: "memory_search" } }),
+  ]);
+
+  const estimatedTokens = totalMemories * 150 + searchCount * 15;
+  const estimatedCostUSD = Math.round((estimatedTokens / 1_000_000) * 0.02 * 100000) / 100000;
+
+  res.json({
+    totals: { projects: totalProjects, memories: totalMemories, tasks: totalTasks, auditLogs: totalAuditLogs, logsToday },
+    memoriesByType:  memoriesByType.map(m => ({ type: m.type, count: m._count.id })),
+    tasksByStatus:   tasksByStatus.map(t => ({ status: t.status, count: t._count.id })),
+    tasksByPriority: tasksByPriority.map(t => ({ priority: t.priority, count: t._count.id })),
+    topTools:        topTools.map(t => ({ tool: t.tool, count: t._count.id })),
+    mostAccessed,
+    activityByDay:   activityByDay.map(a => ({ day: a.day.toISOString().split("T")[0], count: Number(a.count) })),
+    embeddings: { estimatedTokens, estimatedCostUSD, searchCount, memoriesWithEmbeddings: totalMemories },
+  });
+});
+
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 apiRoutes.get("/audit-logs", async (req, res) => {
   const { projectSlug } = req.query as { projectSlug?: string };

@@ -3,6 +3,7 @@ import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import AppLayout from "./layouts/AppLayout";
 import LoginPage from "./pages/LoginPage";
+import DashboardPage from "./pages/DashboardPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import MemoriesPage from "./pages/MemoriesPage";
 import TasksPage from "./pages/TasksPage";
@@ -23,8 +24,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
-            <Route path="/"               element={<ProjectsPage />} />
-            <Route path="/projects/:slug" element={<ProjectsPage />} />
+            <Route path="/"               element={<DashboardPage />} />
+            <Route path="/projects"       element={<ProjectsPage />} />
             <Route path="/memories"       element={<MemoriesPage />} />
             <Route path="/tasks"          element={<TasksPage />} />
             <Route path="/write-requests" element={<WriteRequestsPage />} />

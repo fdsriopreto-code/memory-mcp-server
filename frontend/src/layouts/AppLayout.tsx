@@ -4,7 +4,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 
 const NAV = [
-  { to: "/",               label: "Projetos",    icon: "⬡" },
+  { to: "/",               label: "Dashboard",   icon: "◈"  },
+  { to: "/projects",       label: "Projetos",    icon: "⬡"  },
   { to: "/memories",       label: "Memórias",    icon: "🧠" },
   { to: "/tasks",          label: "Tasks",       icon: "✓"  },
   { to: "/write-requests", label: "Write Reqs",  icon: "✎"  },
