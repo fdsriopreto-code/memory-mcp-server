@@ -30,10 +30,12 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     function connect() {
       if (destroyed) return;
 
+      const token = localStorage.getItem("mcp_token") ?? "";
       const base = import.meta.env.VITE_API_URL ?? "";
-      const wsUrl = base
-        ? base.replace(/^https?/, (m: string) => m === "https" ? "wss" : "ws") + "/ws"
-        : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+      const wsBase = base
+        ? base.replace(/^https?/, (m: string) => m === "https" ? "wss" : "ws")
+        : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+      const wsUrl = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;

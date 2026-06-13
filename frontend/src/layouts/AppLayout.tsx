@@ -8,6 +8,7 @@ import ClaudeWidget from "../components/ClaudeWidget";
 const NAV = [
   { to: "/",               label: "Dashboard",   icon: "◈"  },
   { to: "/agents",         label: "Agentes",     icon: "⬤"  },
+  { to: "/search",         label: "Busca",       icon: "⌕"  },
   { to: "/projects",       label: "Projetos",    icon: "⬡"  },
   { to: "/memories",       label: "Memórias",    icon: "◉"  },
   { to: "/tasks",          label: "Tasks",       icon: "✓"  },

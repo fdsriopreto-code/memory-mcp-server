@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import { env } from "./config/env.js";
 import { prisma } from "./config/database.js";
 import { redis } from "./config/redis.js";
@@ -12,6 +12,18 @@ import { requestCtx } from "./context.js";
 import { patchConsole } from "./logger.js";
 
 patchConsole();
+
+// ── Rate limiting para /mcp ───────────────────────────────────────────────────
+const rlMap = new Map<string, { n: number; reset: number }>();
+function mcpRateLimit(req: Request, res: Response, next: NextFunction) {
+  const key = (req.ip ?? req.socket.remoteAddress ?? "?").replace(/^::ffff:/, "");
+  const now = Date.now();
+  const rl = rlMap.get(key);
+  if (!rl || now > rl.reset) { rlMap.set(key, { n: 1, reset: now + 60_000 }); next(); return; }
+  if (rl.n >= 120) { res.status(429).json({ error: "Rate limit: 120 req/min por IP" }); return; }
+  rl.n++;
+  next();
+}
 
 const app = express();
 const server = createServer(app);
@@ -28,15 +40,15 @@ app.use((req, _res, next) => {
 });
 
 // ── MCP endpoint (Claude Code) ────────────────────────────────────────────────
-app.post("/mcp", mcpAuth, (req, res) => {
+app.post("/mcp", mcpRateLimit, mcpAuth, (req, res) => {
   const sid = (req.headers["mcp-session-id"] as string) ?? null;
   requestCtx.run({ sessionId: sid }, () => handleMcpRequest(req, res));
 });
-app.get("/mcp", mcpAuth, (req, res) => {
+app.get("/mcp", mcpRateLimit, mcpAuth, (req, res) => {
   const sid = (req.headers["mcp-session-id"] as string) ?? null;
   requestCtx.run({ sessionId: sid }, () => handleMcpRequest(req, res));
 });
-app.delete("/mcp",  mcpAuth, (_req, res) => res.status(405).end());
+app.delete("/mcp", mcpAuth, (_req, res) => res.status(405).end());
 
 // ── REST API (painel frontend) ─────────────────────────────────────────────────
 app.use("/auth", authRoutes);

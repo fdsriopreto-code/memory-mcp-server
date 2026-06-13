@@ -37,7 +37,7 @@ export function registerMemoryTools(server: McpServer) {
       const vectorStr = `[${embedding.join(",")}]`;
 
       const typeCondition = type ? Prisma.sql`AND m.type = ${type}` : Prisma.empty;
-      const results = await prisma.$queryRaw<MemoryRow[]>(Prisma.sql`
+      let results = await prisma.$queryRaw<MemoryRow[]>(Prisma.sql`
         SELECT m.id, m.title, m.content, m.type, m.tags, m.importance, m.created_at,
                1 - (m.embedding <=> ${vectorStr}::vector) as similarity
         FROM memories m
@@ -48,7 +48,28 @@ export function registerMemoryTools(server: McpServer) {
         LIMIT ${limit}
       `);
 
-      // Atualiza access_count e accessed_at
+      // Fallback ILIKE para memórias sem embedding ainda
+      if (results.length === 0) {
+        const fallback = await prisma.memory.findMany({
+          where: {
+            projectId: proj.id,
+            ...(type ? { type } : {}),
+            OR: [
+              { title: { contains: query, mode: "insensitive" } },
+              { content: { contains: query, mode: "insensitive" } },
+              { tags: { has: query.toLowerCase() } },
+            ],
+          },
+          take: limit,
+          orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
+        });
+        results = fallback.map(m => ({
+          id: m.id, title: m.title, content: m.content,
+          type: m.type, tags: m.tags, importance: m.importance,
+          similarity: 0, created_at: m.createdAt,
+        }));
+      }
+
       if (results.length > 0) {
         await prisma.memory.updateMany({
           where: { id: { in: results.map(r => r.id) } },
@@ -62,7 +83,7 @@ export function registerMemoryTools(server: McpServer) {
         ? "Nenhuma memória encontrada para essa busca."
         : results.map((r, i) =>
             `## ${i + 1}. [${r.type}] ${r.title}\n` +
-            `Relevância: ${(r.similarity * 100).toFixed(0)}% | Tags: ${r.tags.join(", ") || "—"} | Importância: ${r.importance}/5\n\n` +
+            `Relevância: ${r.similarity > 0 ? `${(r.similarity * 100).toFixed(0)}%` : "texto"} | Tags: ${r.tags.join(", ") || "—"} | Importância: ${r.importance}/5\n\n` +
             r.content
           ).join("\n\n---\n\n");
 
@@ -219,6 +240,77 @@ export function registerMemoryTools(server: McpServer) {
       ).join("\n");
 
       return { content: [{ type: "text" as const, text: text || "Nenhuma memória encontrada." }] };
+    }
+  );
+
+  // ── Listar projetos ──────────────────────────────────────────────────────────
+  server.tool(
+    "project_list",
+    "Lista todos os projetos disponíveis no Memory MCP com contagem de memórias e tasks",
+    {},
+    async () => {
+      const projects = await prisma.project.findMany({
+        orderBy: { createdAt: "desc" },
+        include: { _count: { select: { memories: true, tasks: true } } },
+      });
+      await logAudit(null, "project_list", {}, `${projects.length} projetos`);
+      const text = projects.map(p =>
+        `- **${p.name}** (slug: \`${p.slug}\`) — ${p._count.memories} memórias, ${p._count.tasks} tasks${p.description ? `\n  ${p.description}` : ""}`
+      ).join("\n");
+      return { content: [{ type: "text" as const, text: text || "Nenhum projeto encontrado." }] };
+    }
+  );
+
+  // ── Deletar memória ──────────────────────────────────────────────────────────
+  server.tool(
+    "memory_delete",
+    "Remove uma memória pelo ID. Use com cautela — a operação é irreversível.",
+    { id: z.string().describe("ID da memória a deletar") },
+    async ({ id }) => {
+      const memory = await prisma.memory.findUnique({ where: { id } });
+      if (!memory) return { content: [{ type: "text" as const, text: "Memória não encontrada." }] };
+      await prisma.memory.delete({ where: { id } });
+      await logAudit(memory.projectId, "memory_delete", { id }, `"${memory.title}" deletada`);
+      return { content: [{ type: "text" as const, text: `Memória "${memory.title}" (${id}) deletada.` }] };
+    }
+  );
+
+  // ── Adicionar múltiplas memórias ─────────────────────────────────────────────
+  server.tool(
+    "memory_add_batch",
+    "Salva múltiplas memórias de uma vez — ideal para consolidar contexto ao fim de uma sessão longa",
+    {
+      project:  z.string().describe("Slug do projeto"),
+      memories: z.array(z.object({
+        type:       z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"]),
+        title:      z.string(),
+        content:    z.string(),
+        tags:       z.array(z.string()).default([]),
+        importance: z.number().min(1).max(5).default(3),
+      })).min(1).max(20).describe("Lista de memórias (máx 20 por chamada)"),
+    },
+    async ({ project, memories }) => {
+      const proj = await prisma.project.findUnique({ where: { slug: project } });
+      if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
+
+      const created = await Promise.all(
+        memories.map(m => prisma.memory.create({
+          data: { projectId: proj.id, type: m.type, title: m.title, content: m.content, tags: m.tags, importance: m.importance },
+        }))
+      );
+
+      setImmediate(async () => {
+        for (let i = 0; i < created.length; i++) {
+          try {
+            const embedding = await getEmbedding(`${memories[i].title}\n\n${memories[i].content}`);
+            await prisma.$executeRaw`UPDATE memories SET embedding = ${`[${embedding.join(",")}]`}::vector WHERE id = ${created[i].id}`;
+          } catch {}
+        }
+      });
+
+      await logAudit(proj.id, "memory_add_batch", { project, count: created.length }, `${created.length} memórias criadas`);
+      const ids = created.map(m => m.id).join(", ");
+      return { content: [{ type: "text" as const, text: `${created.length} memórias salvas!\nIDs: ${ids}` }] };
     }
   );
 }

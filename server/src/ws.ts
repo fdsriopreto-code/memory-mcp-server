@@ -1,12 +1,24 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
+import { verify } from "jsonwebtoken";
+import { env } from "./config/env.js";
 
 let wss: WebSocketServer | null = null;
 
 export function initWss(server: Server): void {
   wss = new WebSocketServer({ server, path: "/ws" });
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
+    try {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const token = url.searchParams.get("token");
+      if (!token) { ws.terminate(); return; }
+      verify(token, env.JWT_SECRET);
+    } catch {
+      ws.terminate();
+      return;
+    }
+
     ws.on("error", () => ws.terminate());
     ws.send(JSON.stringify({ type: "connected", ts: Date.now() }));
   });

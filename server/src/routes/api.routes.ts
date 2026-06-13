@@ -284,6 +284,25 @@ apiRoutes.get("/server-logs", (req, res) => {
   res.json(logs.slice(-Number(limit)));
 });
 
+// ── Busca global ─────────────────────────────────────────────────────────────
+apiRoutes.get("/search", async (req, res) => {
+  const { q } = req.query as { q?: string };
+  if (!q || q.trim().length < 2) { res.json({ memories: [] }); return; }
+  const memories = await prisma.memory.findMany({
+    where: {
+      OR: [
+        { title: { contains: q, mode: "insensitive" } },
+        { content: { contains: q, mode: "insensitive" } },
+        { tags: { has: q.toLowerCase() } },
+      ],
+    },
+    include: { project: { select: { name: true, slug: true, color: true } } },
+    orderBy: [{ importance: "desc" }, { accessCount: "desc" }],
+    take: 40,
+  });
+  res.json({ memories });
+});
+
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 apiRoutes.get("/audit-logs", async (req, res) => {
   const { projectSlug, limit = "200" } = req.query as { projectSlug?: string; limit?: string };

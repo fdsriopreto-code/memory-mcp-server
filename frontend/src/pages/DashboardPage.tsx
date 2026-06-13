@@ -397,7 +397,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-semibold text-white">Atividade Recente</p>
-              <p className="text-[11px] text-gray-500">Atualiza a cada 3s</p>
+              <p className="text-[11px] text-gray-500">Tempo real via WebSocket</p>
             </div>
             {isActive ? (
               <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
