@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database.js";
 
 export async function logAudit(
@@ -7,6 +8,6 @@ export async function logAudit(
   outputSummary?: string,
 ): Promise<void> {
   await prisma.auditLog.create({
-    data: { projectId, tool, input, outputSummary },
-  }).catch(() => {}); // nunca deve quebrar o fluxo principal
+    data: { projectId, tool, input: input as Prisma.InputJsonValue, outputSummary },
+  }).catch(() => {});
 }
