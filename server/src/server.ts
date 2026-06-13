@@ -4,6 +4,7 @@ import type { Request, Response } from "express";
 import { registerMemoryTools } from "./tools/memory.tools.js";
 import { registerDatabaseTools } from "./tools/database.tools.js";
 import { registerTaskTools } from "./tools/task.tools.js";
+import { registerServerLogsTools } from "./tools/serverLogs.tools.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -14,6 +15,7 @@ export function createMcpServer(): McpServer {
   registerMemoryTools(server);
   registerDatabaseTools(server);
   registerTaskTools(server);
+  registerServerLogsTools(server);
 
   return server;
 }
