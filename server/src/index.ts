@@ -30,7 +30,15 @@ app.use("/auth", authRoutes);
 app.use("/api",  apiRoutes);
 
 // ── Health check ───────────────────────────────────────────────────────────────
-app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+app.get("/health", (_req, res) => {
+  const keyHex = process.env.ENCRYPTION_KEY ?? "";
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    encKeyLen: keyHex.length,       // deve ser 64 (32 bytes hex)
+    encKeyValid: keyHex.length === 64 && /^[0-9a-fA-F]+$/.test(keyHex),
+  });
+});
 
 async function start() {
   await redis.connect().catch(() => console.warn("[Redis] Conectando em background..."));
