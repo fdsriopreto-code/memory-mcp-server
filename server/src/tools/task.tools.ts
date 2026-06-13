@@ -39,6 +39,8 @@ export function registerTaskTools(server: McpServer) {
         orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
       });
 
+      await logAudit(proj.id, "task_list", { project, status }, `${tasks.length} tasks`);
+
       const text = tasks.map(t =>
         `[${t.id}] [${t.priority}] [${t.status}] ${t.title}${t.description ? ` — ${t.description}` : ""}`
       ).join("\n");
@@ -54,7 +56,8 @@ export function registerTaskTools(server: McpServer) {
       status: z.enum(["OPEN","IN_PROGRESS","DONE","CANCELLED"]),
     },
     async ({ id, status }) => {
-      await prisma.task.update({ where: { id }, data: { status } });
+      const task = await prisma.task.update({ where: { id }, data: { status } });
+      await logAudit(task.projectId, "task_update", { id, status }, `Task ${id} → ${status}`);
       return { content: [{ type: "text" as const, text: `Task ${id} → ${status}` }] };
     }
   );

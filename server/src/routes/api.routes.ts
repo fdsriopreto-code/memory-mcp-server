@@ -286,17 +286,18 @@ apiRoutes.get("/server-logs", (req, res) => {
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 apiRoutes.get("/audit-logs", async (req, res) => {
-  const { projectSlug } = req.query as { projectSlug?: string };
+  const { projectSlug, limit = "200" } = req.query as { projectSlug?: string; limit?: string };
   let projectId: string | undefined;
   if (projectSlug) {
     const proj = await prisma.project.findUnique({ where: { slug: projectSlug } });
     projectId = proj?.id;
   }
+  const take = Math.min(Math.max(1, Number(limit) || 200), 500);
   const logs = await prisma.auditLog.findMany({
     where: projectId ? { projectId } : {},
     include: { project: { select: { name: true, slug: true, color: true } } },
     orderBy: { createdAt: "desc" },
-    take: 200,
+    take,
   });
   res.json(logs);
 });

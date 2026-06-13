@@ -122,6 +122,7 @@ export function registerMemoryTools(server: McpServer) {
       if (!memory) return { content: [{ type: "text" as const, text: "Memória não encontrada." }] };
 
       await prisma.memory.update({ where: { id }, data: { title, content, tags, importance } });
+      await logAudit(memory.projectId, "memory_update", { id, title, tags, importance }, `Memória ${id} atualizada`);
 
       if (content || title) {
         setImmediate(async () => {
@@ -209,6 +210,8 @@ export function registerMemoryTools(server: McpServer) {
         orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
         take: limit,
       });
+
+      await logAudit(proj.id, "memory_list", { project, type, tag, limit }, `${memories.length} memórias`);
 
       const text = memories.map(m =>
         `- [${m.id}] [${m.type}] **${m.title}** (imp: ${m.importance}) tags: ${m.tags.join(", ") || "—"}`

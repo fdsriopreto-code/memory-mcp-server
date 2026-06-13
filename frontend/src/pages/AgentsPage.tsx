@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useWs } from "../contexts/WsContext";
+import { api } from "../services/api";
 import type { AuditLog } from "../hooks/useLiveAudit";
 
 // ── Tool metadata ─────────────────────────────────────────────────────────────
@@ -249,6 +250,36 @@ export default function AgentsPage() {
   const { subscribe, connected } = useWs();
   const lastTs   = useRef<Record<string, number>>({});   // burstId → lastTs
   const [tick,   setTick]       = useState(0);           // force re-render for relTime
+
+  // Carrega histórico recente ao montar (últimos 30 min)
+  useEffect(() => {
+    api.get<AuditLog[]>("/api/audit-logs?limit=80").then(logs => {
+      const recent = logs.filter(l => Date.now() - new Date(l.createdAt).getTime() < 30 * 60_000);
+      if (recent.length === 0) return;
+
+      setFeed(recent);
+      setTotal(recent.length);
+      setTodayCount(recent.filter(l => Date.now() - new Date(l.createdAt).getTime() < 86_400_000).length);
+
+      // Reconstrói bursts a partir do histórico
+      const burstMap = new Map<string, Burst>();
+      [...recent].reverse().forEach(log => {
+        const now = new Date(log.createdAt).getTime();
+        const pSlug = log.project?.slug ?? "__global";
+        const key = log.sessionId ?? `${pSlug}`;
+        if (!burstMap.has(key)) {
+          const id = `burst-${++burstCounter}`;
+          const accent = ACCENTS[(burstCounter - 1) % ACCENTS.length];
+          burstMap.set(key, { id, logs: [], lastTs: now, sessionId: log.sessionId ?? null, projectSlug: pSlug, accent });
+        }
+        const b = burstMap.get(key)!;
+        b.logs = [log, ...b.logs].slice(0, 10);
+        b.lastTs = Math.max(b.lastTs, now);
+      });
+
+      setBursts([...burstMap.values()].sort((a, b) => b.lastTs - a.lastTs).slice(0, 6));
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => {
