@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
+import { useWs } from "../contexts/WsContext";
 
-type Log = {
+export type AuditLog = {
   id: string;
   tool: string;
   input: unknown;
@@ -10,53 +11,47 @@ type Log = {
   project: { name: string; slug: string; color: string } | null;
 };
 
-const POLL_MS = 3000;
-
 export function useLiveAudit(limit = 50) {
-  const [logs, setLogs]         = useState<Log[]>([]);
+  const [logs, setLogs]         = useState<AuditLog[]>([]);
   const [newIds, setNewIds]     = useState<Set<string>>(new Set());
   const [isActive, setIsActive] = useState(false);
-  const knownIds = useRef<Set<string>>(new Set());
-  const lastActivity = useRef<number>(0);
+  const lastActivity            = useRef<number>(0);
+  const { subscribe }           = useWs();
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const all   = await api.get<Log[]>("/api/audit-logs");
+    api.get<AuditLog[]>("/api/audit-logs")
+      .then(all => {
         const fresh = all.slice(0, limit);
-        if (cancelled) return;
-
-        const incoming = new Set<string>();
-        for (const l of fresh) {
-          if (!knownIds.current.has(l.id)) incoming.add(l.id);
-        }
-
-        if (incoming.size > 0) {
-          lastActivity.current = Date.now();
-          setNewIds(incoming);
-          setTimeout(() => setNewIds(new Set()), 2000);
-          fresh.forEach(l => knownIds.current.add(l.id));
-        }
-
         setLogs(fresh);
-        setIsActive(Date.now() - lastActivity.current < 30_000);
-      } catch {
-        // silently ignore
-      }
-    }
+        if (fresh.length > 0) {
+          const last = new Date(fresh[0].createdAt).getTime();
+          if (Date.now() - last < 30_000) {
+            lastActivity.current = last;
+            setIsActive(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [limit]);
 
-    poll();
-    const id = setInterval(poll, POLL_MS);
+  useEffect(() => {
+    return subscribe("audit_log", (data) => {
+      const log = data as AuditLog;
+      lastActivity.current = Date.now();
+      setIsActive(true);
+      setLogs(prev => [log, ...prev].slice(0, limit));
+      const id = log.id;
+      setNewIds(prev => new Set([...prev, id]));
+      setTimeout(() => setNewIds(prev => { const s = new Set(prev); s.delete(id); return s; }), 3000);
+    });
+  }, [subscribe, limit]);
 
-    // re-check isActive every second
+  useEffect(() => {
     const ticker = setInterval(() => {
       setIsActive(Date.now() - lastActivity.current < 30_000);
     }, 1000);
-
-    return () => { cancelled = true; clearInterval(id); clearInterval(ticker); };
-  }, [limit]);
+    return () => clearInterval(ticker);
+  }, []);
 
   return { logs, newIds, isActive };
 }

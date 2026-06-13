@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
 import { useLiveAudit } from "../hooks/useLiveAudit";
+import { useWs } from "../contexts/WsContext";
 
 type Project = { id: string; name: string; slug: string };
 
@@ -36,6 +37,7 @@ export default function AuditLogPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [filter,   setFilter]   = useState<string>("");
   const { logs, newIds, isActive } = useLiveAudit(200);
+  const { connected } = useWs();
 
   useEffect(() => {
     api.get<Project[]>("/api/projects").then(setProjects).catch(console.error);
@@ -67,59 +69,76 @@ export default function AuditLogPage() {
               <span className="text-gray-500 text-xs">inativo</span>
             </div>
           )}
+
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium shrink-0 ${
+            connected
+              ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+              : "bg-gray-800 text-gray-600 border border-gray-700"
+          }`}>
+            <span className={`inline-flex h-1.5 w-1.5 rounded-full ${connected ? "bg-indigo-500" : "bg-gray-600"}`} />
+            {connected ? "WebSocket" : "Reconectando..."}
+          </div>
         </div>
 
-        <select
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          className="shrink-0 px-3 py-2 bg-gray-900 border border-gray-800 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-        >
-          <option value="">Todos os projetos</option>
-          {projects.map(p => <option key={p.id} value={p.slug}>{p.name}</option>)}
-        </select>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs text-gray-600">{visible.length} entradas</span>
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className="px-3 py-2 bg-gray-900 border border-gray-800 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+          >
+            <option value="">Todos os projetos</option>
+            {projects.map(p => <option key={p.id} value={p.slug}>{p.name}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Log feed */}
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {visible.map(l => {
           const isNew = newIds.has(l.id);
           return (
             <div
               key={l.id}
-              className={`flex items-start gap-3 px-4 py-2.5 rounded-xl text-xs border transition-colors duration-700 ${
+              className={`flex items-start gap-3 px-4 py-2.5 rounded-xl text-xs border transition-all duration-500 ${
                 isNew
-                  ? "bg-indigo-900/25 border-indigo-500/35"
+                  ? "bg-indigo-900/25 border-indigo-500/35 shadow-sm shadow-indigo-500/10"
                   : "bg-gray-900 border-gray-800"
               }`}
             >
-              {/* timestamp */}
-              <span className="text-gray-500 font-mono shrink-0 pt-0.5 w-20 text-right tabular-nums">
+              <span className="text-gray-600 font-mono shrink-0 pt-0.5 w-20 text-right tabular-nums">
                 {relativeTime(l.createdAt)}
               </span>
 
-              {/* tool badge */}
               <span className={`font-semibold px-2 py-0.5 rounded border text-[11px] shrink-0 ${toolStyle(l.tool)}`}>
                 {l.tool}
               </span>
 
-              {/* project */}
               {l.project && (
-                <span className="text-gray-500 shrink-0 max-w-[7rem] truncate">{l.project.name}</span>
+                <span
+                  className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
+                  style={{
+                    background: l.project.color ? `${l.project.color}22` : undefined,
+                    color: l.project.color ?? "#6b7280",
+                  }}
+                >
+                  {l.project.name}
+                </span>
               )}
 
-              {/* summary */}
               <span className="text-gray-400 flex-1 truncate">{l.outputSummary ?? ""}</span>
             </div>
           );
         })}
       </div>
 
-      {/* Empty state */}
       {visible.length === 0 && (
         <div className="text-center py-16 text-gray-600 text-sm">
-          <div className="text-4xl mb-3 opacity-40">🧠</div>
-          <p>Aguardando atividade do Claude...</p>
-          <p className="text-xs mt-1 text-gray-700">Atualiza automaticamente a cada 3s</p>
+          <div className="text-5xl mb-3 opacity-20">◎</div>
+          <p className="text-gray-500">Aguardando atividade do Claude...</p>
+          <p className="text-xs mt-1 text-gray-700">
+            {connected ? "WebSocket conectado — atualização em tempo real" : "Reconectando ao WebSocket..."}
+          </p>
         </div>
       )}
     </div>

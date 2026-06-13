@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import express from "express";
 import { env } from "./config/env.js";
 import { prisma } from "./config/database.js";
@@ -6,8 +7,10 @@ import { mcpAuth } from "./middleware/auth.js";
 import { handleMcpRequest } from "./server.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { apiRoutes } from "./routes/api.routes.js";
+import { initWss } from "./ws.js";
 
 const app = express();
+const server = createServer(app);
 
 app.use(express.json({ limit: "4mb" }));
 
@@ -35,7 +38,7 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     ts: new Date().toISOString(),
-    encKeyLen: keyHex.length,       // deve ser 64 (32 bytes hex)
+    encKeyLen: keyHex.length,
     encKeyValid: keyHex.length === 64 && /^[0-9a-fA-F]+$/.test(keyHex),
   });
 });
@@ -43,7 +46,8 @@ app.get("/health", (_req, res) => {
 async function start() {
   await redis.connect().catch(() => console.warn("[Redis] Conectando em background..."));
   await prisma.$connect();
-  app.listen(env.PORT, () => {
+  initWss(server);
+  server.listen(env.PORT, () => {
     console.log(`[MCP Server] Rodando na porta ${env.PORT}`);
     console.log(`[MCP] Endpoint: http://localhost:${env.PORT}/mcp`);
   });

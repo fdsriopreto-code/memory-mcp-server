@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { WsProvider } from "./contexts/WsContext";
 import AppLayout from "./layouts/AppLayout";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -20,19 +21,21 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Toaster richColors position="top-right" />
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
-            <Route path="/"               element={<DashboardPage />} />
-            <Route path="/projects"       element={<ProjectsPage />} />
-            <Route path="/memories"       element={<MemoriesPage />} />
-            <Route path="/tasks"          element={<TasksPage />} />
-            <Route path="/write-requests" element={<WriteRequestsPage />} />
-            <Route path="/audit"          element={<AuditLogPage />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <WsProvider>
+          <Toaster richColors position="top-right" />
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+              <Route path="/"               element={<DashboardPage />} />
+              <Route path="/projects"       element={<ProjectsPage />} />
+              <Route path="/memories"       element={<MemoriesPage />} />
+              <Route path="/tasks"          element={<TasksPage />} />
+              <Route path="/write-requests" element={<WriteRequestsPage />} />
+              <Route path="/audit"          element={<AuditLogPage />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </WsProvider>
       </AuthProvider>
     </BrowserRouter>
   );

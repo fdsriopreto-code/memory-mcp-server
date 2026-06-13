@@ -3,6 +3,7 @@ import { prisma } from "../config/database.js";
 import { jwtAuth } from "../middleware/auth.js";
 import { encrypt } from "../services/crypto.service.js";
 import { executeWrite } from "../services/connection.service.js";
+import { broadcast } from "../ws.js";
 
 export const apiRoutes = Router();
 apiRoutes.use(jwtAuth);
@@ -21,6 +22,7 @@ apiRoutes.get("/projects", async (_req, res) => {
 apiRoutes.post("/projects", async (req, res) => {
   const { name, slug, description, color } = req.body;
   const project = await prisma.project.create({ data: { name, slug, description, color } });
+  broadcast("refresh", { resource: "project" });
   res.status(201).json(project);
 });
 
@@ -74,11 +76,13 @@ apiRoutes.post("/projects/:slug/memories", async (req, res) => {
   if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
   const { type, title, content, tags, importance } = req.body;
   const memory = await prisma.memory.create({ data: { projectId: proj.id, type, title, content, tags: tags ?? [], importance: importance ?? 3 } });
+  broadcast("refresh", { resource: "memory", projectSlug: req.params.slug });
   res.status(201).json(memory);
 });
 
 apiRoutes.delete("/memories/:id", async (req, res) => {
   await prisma.memory.delete({ where: { id: req.params.id } });
+  broadcast("refresh", { resource: "memory" });
   res.json({ ok: true });
 });
 
@@ -96,11 +100,13 @@ apiRoutes.get("/projects/:slug/tasks", async (req, res) => {
 apiRoutes.patch("/tasks/:id", async (req, res) => {
   const { status, title, description, priority } = req.body;
   const task = await prisma.task.update({ where: { id: req.params.id }, data: { status, title, description, priority } });
+  broadcast("refresh", { resource: "task" });
   res.json(task);
 });
 
 apiRoutes.delete("/tasks/:id", async (req, res) => {
   await prisma.task.delete({ where: { id: req.params.id } });
+  broadcast("refresh", { resource: "task" });
   res.json({ ok: true });
 });
 
@@ -132,6 +138,7 @@ apiRoutes.patch("/write-requests/:id/approve", async (req, res) => {
       where: { id: wr.id },
       data: { status: "EXECUTED", result: JSON.stringify(result), resolvedAt: new Date() },
     });
+    broadcast("refresh", { resource: "write_request" });
     res.json({ ok: true, result });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -139,6 +146,7 @@ apiRoutes.patch("/write-requests/:id/approve", async (req, res) => {
       where: { id: wr.id },
       data: { status: "REJECTED", result: `Erro na execução: ${msg}`, resolvedAt: new Date() },
     });
+    broadcast("refresh", { resource: "write_request" });
     res.status(500).json({ error: msg });
   }
 });
@@ -149,6 +157,7 @@ apiRoutes.patch("/write-requests/:id/reject", async (req, res) => {
     where: { id: req.params.id },
     data: { status: "REJECTED", result: reason ?? "Rejeitado pelo administrador", resolvedAt: new Date() },
   });
+  broadcast("refresh", { resource: "write_request" });
   res.json({ ok: true });
 });
 
@@ -223,7 +232,7 @@ apiRoutes.get("/audit-logs", async (req, res) => {
   }
   const logs = await prisma.auditLog.findMany({
     where: projectId ? { projectId } : {},
-    include: { project: { select: { name: true, slug: true } } },
+    include: { project: { select: { name: true, slug: true, color: true } } },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
