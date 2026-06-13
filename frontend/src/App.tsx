@@ -11,6 +11,7 @@ import TasksPage from "./pages/TasksPage";
 import WriteRequestsPage from "./pages/WriteRequestsPage";
 import AuditLogPage from "./pages/AuditLogPage";
 import AgentsPage from "./pages/AgentsPage";
+import LogsPage from "./pages/LogsPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="/write-requests" element={<WriteRequestsPage />} />
               <Route path="/audit"          element={<AuditLogPage />} />
               <Route path="/agents"         element={<AgentsPage />} />
+              <Route path="/logs"           element={<LogsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

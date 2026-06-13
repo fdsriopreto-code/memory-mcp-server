@@ -9,6 +9,9 @@ import { authRoutes } from "./routes/auth.routes.js";
 import { apiRoutes } from "./routes/api.routes.js";
 import { initWss } from "./ws.js";
 import { requestCtx } from "./context.js";
+import { patchConsole } from "./logger.js";
+
+patchConsole();
 
 const app = express();
 const server = createServer(app);

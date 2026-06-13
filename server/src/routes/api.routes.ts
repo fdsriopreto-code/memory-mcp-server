@@ -4,6 +4,7 @@ import { jwtAuth } from "../middleware/auth.js";
 import { encrypt } from "../services/crypto.service.js";
 import { executeWrite } from "../services/connection.service.js";
 import { broadcast } from "../ws.js";
+import { getLogBuffer } from "../logger.js";
 
 export const apiRoutes = Router();
 apiRoutes.use(jwtAuth);
@@ -220,6 +221,14 @@ apiRoutes.get("/stats", async (_req, res) => {
     activityByDay:   activityByDay.map(a => ({ day: a.day.toISOString().split("T")[0], count: Number(a.count) })),
     embeddings: { estimatedTokens, estimatedCostUSD, searchCount, memoriesWithEmbeddings: totalMemories },
   });
+});
+
+// ── Server Logs ───────────────────────────────────────────────────────────────
+apiRoutes.get("/server-logs", (req, res) => {
+  const { level, limit = "300" } = req.query as { level?: string; limit?: string };
+  let logs = getLogBuffer();
+  if (level && level !== "all") logs = logs.filter(l => l.level === level);
+  res.json(logs.slice(-Number(limit)));
 });
 
 // ── Audit Log ─────────────────────────────────────────────────────────────────
