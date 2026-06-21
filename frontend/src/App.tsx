@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { WsProvider } from "./contexts/WsContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import AppLayout from "./layouts/AppLayout";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -26,6 +27,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
+      <ThemeProvider>
       <AuthProvider>
         <WsProvider>
           <Toaster richColors position="top-right" />
@@ -49,6 +51,7 @@ export default function App() {
           </Routes>
         </WsProvider>
       </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

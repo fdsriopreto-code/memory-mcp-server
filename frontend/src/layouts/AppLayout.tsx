@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useWs } from "../contexts/WsContext";
+import { useTheme } from "../contexts/ThemeContext";
 import type { AuditLog } from "../hooks/useLiveAudit";
 import ClaudeWidget from "../components/ClaudeWidget";
 
@@ -44,6 +45,7 @@ export default function AppLayout() {
   const navigate     = useNavigate();
   const location     = useLocation();
   const { connected, subscribe } = useWs();
+  const { theme, toggle: toggleTheme } = useTheme();
   const isFullscreen = FULLSCREEN_ROUTES.includes(location.pathname);
   const [claudeActive, setClaudeActive] = useState(false);
   const [lastTool, setLastTool] = useState<string | null>(null);
@@ -165,6 +167,16 @@ export default function AppLayout() {
               {connected ? "WebSocket ativo" : "Reconectando…"}
             </span>
           </div>
+          {/* Theme toggle */}
+          <button onClick={toggleTheme}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all w-full text-white/30 hover:text-white/70 hover:bg-white/[0.04]">
+            {theme === "dark" ? (
+              <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M10 3v1M10 16v1M3 10H2M18 10h-1M5.05 5.05l-.71-.71M15.66 15.66l-.71-.71M5.05 14.95l-.71.71M15.66 4.34l-.71.71M13 10a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            ) : (
+              <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M17 11.5A7 7 0 018.5 3a7.002 7.002 0 000 14c3.866 0 7-3.134 7-7 0-.17-.006-.338-.018-.505A7.003 7.003 0 0017 11.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            )}
+            <span className="text-[13px]">{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
+          </button>
           {/* Logout */}
           <button
             onClick={handleLogout}

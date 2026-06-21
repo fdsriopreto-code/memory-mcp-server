@@ -2,25 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design tokens ──────────────────────────────────────────────────────────── */
+:root, .dark {
+  --bg-base:     #030712;
+  --bg-card:     #080c1a;
+  --bg-elevated: #0d1117;
+  --bg-overlay:  #060a14;
+  --border:      rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.12);
+  --text-1: #f9fafb;
+  --text-2: #94a3b8;
+  --text-3: #475569;
+  --text-4: #2d3748;
+  --accent:      #6366f1;
+  --accent-soft: rgba(99,102,241,0.12);
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.4);
+  --shadow-glow: 0 0 0 1px rgba(99,102,241,0.3);
+}
+
+.light {
+  --bg-base:     #f0f2f8;
+  --bg-card:     #ffffff;
+  --bg-elevated: #f8fafc;
+  --bg-overlay:  #eef0f8;
+  --border:      rgba(0,0,0,0.07);
+  --border-strong: rgba(0,0,0,0.13);
+  --text-1: #0f172a;
+  --text-2: #475569;
+  --text-3: #94a3b8;
+  --text-4: #cbd5e1;
+  --accent:      #4f46e5;
+  --accent-soft: rgba(79,70,229,0.10);
+  --shadow-card: 0 2px 16px rgba(0,0,0,0.08);
+  --shadow-glow: 0 0 0 1px rgba(79,70,229,0.25);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
 body {
-  background: #030712;
-  color: #f9fafb;
+  background: var(--bg-base);
+  color: var(--text-1);
   font-feature-settings: "ss01", "ss02", "cv01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 0.25s ease, color 0.25s ease;
 }
 
-/* Custom scrollbar */
+/* ── Sidebar / layout overrides for light mode ──────────────────────────────── */
+.light aside {
+  background: linear-gradient(180deg, #f8faff 0%, #f0f2fc 100%) !important;
+  border-color: rgba(0,0,0,0.07) !important;
+}
+.light aside .border-white\/\[0\.06\] { border-color: rgba(0,0,0,0.07) !important; }
+.light aside nav a { color: rgba(15,23,42,0.45); }
+.light aside nav a:hover { background: rgba(0,0,0,0.04) !important; color: rgba(15,23,42,0.85) !important; }
+.light aside nav a[class*="text-white"] { color: #0f172a !important; }
+.light aside p.text-white { color: #0f172a !important; }
+.light aside p.text-white\/30 { color: rgba(15,23,42,0.4) !important; }
+.light aside .bg-\[\#0a0d1a\] { background: #f8faff !important; }
+.light main { background: var(--bg-base) !important; }
+.light .bg-\[\#030712\] { background: var(--bg-base) !important; }
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
-
-/* Hide scrollbar utility */
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.15); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.25); }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Line clamp utilities */
+/* ── Utilities ──────────────────────────────────────────────────────────────── */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -33,3 +83,7 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── Transitions ────────────────────────────────────────────────────────────── */
+* { transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease; }
+canvas, svg * { transition: none !important; }
