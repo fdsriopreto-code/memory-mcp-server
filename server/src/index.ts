@@ -30,6 +30,7 @@ function mcpRateLimit(req: Request, res: Response, next: NextFunction) {
 const app = express();
 const server = createServer(app);
 
+app.set("trust proxy", 1); // nginx reverse proxy
 app.use(express.json({ limit: "4mb" }));
 
 app.use((req, _res, next) => {

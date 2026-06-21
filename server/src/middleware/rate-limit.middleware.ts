@@ -23,5 +23,4 @@ export const heavyOpsLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Operação pesada em cooldown. Máximo 5 a cada 5 minutos." },
-  keyGenerator: (req) => req.body?.project_slug ?? req.ip ?? "unknown",
 });
