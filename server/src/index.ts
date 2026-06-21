@@ -10,6 +10,8 @@ import { apiRoutes } from "./routes/api.routes.js";
 import { initWss } from "./ws.js";
 import { requestCtx } from "./context.js";
 import { patchConsole } from "./logger.js";
+import { apiRateLimit } from "./middleware/rate-limit.middleware.js";
+import { initBrainWorker } from "./workers/brain.worker.js";
 
 patchConsole();
 
@@ -52,7 +54,7 @@ app.delete("/mcp", mcpAuth, (_req, res) => res.status(405).end());
 
 // ── REST API (painel frontend) ─────────────────────────────────────────────────
 app.use("/auth", authRoutes);
-app.use("/api",  apiRoutes);
+app.use("/api", apiRateLimit, apiRoutes);
 
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -71,6 +73,19 @@ app.get("/health", (_req, res) => {
   });
 });
 
+// Cleanup de MemoryAccessLog com mais de 180 dias (roda a cada 24h)
+setInterval(async () => {
+  try {
+    const cutoff = new Date(Date.now() - 180 * 86_400_000);
+    const result = await prisma.$executeRaw`
+      DELETE FROM memory_access_logs WHERE accessed_at < ${cutoff}
+    `;
+    if (result > 0) console.log(`[cleanup] ${result} access logs removidos`);
+  } catch (e) {
+    console.error("[cleanup] Erro:", e);
+  }
+}, 24 * 60 * 60_000);
+
 async function start() {
   await redis.connect().catch(() => console.warn("[Redis] Conectando em background..."));
   await prisma.$connect();
@@ -79,6 +94,7 @@ async function start() {
     console.log(`[MCP Server] Rodando na porta ${env.PORT}`);
     console.log(`[MCP] Endpoint: http://localhost:${env.PORT}/mcp`);
   });
+  initBrainWorker();
 }
 
 start().catch((e) => { console.error(e); process.exit(1); });

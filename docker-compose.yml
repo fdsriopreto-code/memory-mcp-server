@@ -13,6 +13,14 @@ services:
       - mcp-network
       - easypanel  # rede interna da VPS para acessar outros projetos
 
+  mcp-redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - mcp-network
+
   mcp-server:
     build:
       context: ./server
@@ -24,6 +32,7 @@ services:
       - "3100:3100"
     depends_on:
       - mcp-postgres
+      - mcp-redis
     networks:
       - mcp-network
       - easypanel

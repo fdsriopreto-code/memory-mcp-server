@@ -328,42 +328,52 @@ export function registerSurrealTools(server: McpServer) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ inferred: false, reason: "Sem memórias relevantes" }) }] };
       }
 
-      // Fase 2: BFS pelo grafo de links
-      const TRAVERSABLE = ["EXTENDS", "DEPENDS_ON", "EXAMPLE_OF", "CAUSES", "RELATED"];
-      const visited = new Set<string>(seeds.map(s => s.id));
-      let frontier = seeds.map(s => s.id);
-      const path: string[] = seeds.map(s => s.title);
+      // Fase 2: WITH RECURSIVE — traversal completo em 1 query, com cycle detection nativo
+      const seedIds = seeds.map((s: {id: string}) => s.id);
+      const maxHopsVal = Number(max_hops ?? 2);
 
-      for (let hop = 0; hop < max_hops; hop++) {
-        if (frontier.length === 0) break;
-        const links = await prisma.memoryLink.findMany({
-          where: {
-            relation: { in: TRAVERSABLE as never[] },
-            OR: [{ fromId: { in: frontier } }, { toId: { in: frontier } }],
-          },
-          select: { fromId: true, toId: true, relation: true },
-        });
-        const nextFrontier: string[] = [];
-        for (const l of links) {
-          for (const neighborId of [l.fromId, l.toId]) {
-            if (!visited.has(neighborId)) {
-              visited.add(neighborId);
-              nextFrontier.push(neighborId);
-            }
-          }
-        }
-        frontier = nextFrontier;
-      }
+      const chainRows = await prisma.$queryRaw<{
+        id: string; title: string; content: string; type: string; depth: number; via: string;
+      }[]>`
+        WITH RECURSIVE graph_walk(id, title, content, type, depth, via, path) AS (
+          SELECT m.id, m.title, m.content, m.type::text, 0, 'direct'::text, ARRAY[m.id]
+          FROM memories m
+          WHERE m.id = ANY(${seedIds}::text[])
+            AND m.project_id = ${proj.id}
 
-      // Buscar todas as memórias do grafo
-      const allMems = await prisma.memory.findMany({
-        where: { id: { in: [...visited] } },
-        select: { id: true, title: true, content: true, type: true },
-      });
+          UNION ALL
+
+          SELECT
+            next_m.id, next_m.title, next_m.content, next_m.type::text,
+            gw.depth + 1,
+            ml.relation::text || ' from "' || gw.title || '"',
+            gw.path || next_m.id
+          FROM graph_walk gw
+          JOIN memory_links ml ON (
+            (ml.from_id = gw.id AND ml.relation::text IN ('EXTENDS','DEPENDS_ON','EXAMPLE_OF','CAUSES'))
+            OR
+            (ml.to_id = gw.id AND ml.relation::text IN ('DEPENDS_ON','EXTENDS'))
+          )
+          JOIN memories next_m ON (
+            CASE WHEN ml.from_id = gw.id THEN next_m.id = ml.to_id
+                 ELSE next_m.id = ml.from_id END
+          )
+          WHERE gw.depth < ${maxHopsVal}
+            AND NOT (next_m.id = ANY(gw.path))
+            AND next_m.project_id = ${proj.id}
+            AND next_m.epistemic_status::text != 'DEPRECATED'
+        )
+        SELECT DISTINCT ON (id) id, title, content, type, depth, via
+        FROM graph_walk
+        ORDER BY id, depth ASC
+      `;
+
+      const allMems = chainRows;
+      const path: string[] = seeds.map((s: {title: string}) => s.title);
 
       // Adicionar títulos de memórias expandidas ao path
       for (const m of allMems) {
-        if (!seeds.find(s => s.id === m.id)) {
+        if (!seeds.find((s: {id: string}) => s.id === m.id)) {
           path.push(`[via grafo] ${m.title}`);
         }
       }
@@ -392,7 +402,7 @@ export function registerSurrealTools(server: McpServer) {
       const answer = completion.choices[0]?.message?.content ?? "Não foi possível inferir uma resposta.";
 
       // Estimar confiança baseada na similaridade das seeds
-      const avgSim = seeds.reduce((s, r) => s + r.similarity, 0) / seeds.length;
+      const avgSim = seeds.reduce((s: number, r: {similarity: number}) => s + r.similarity, 0) / seeds.length;
       const confidence = Math.min(0.99, avgSim * (allMems.length > seeds.length ? 1.15 : 1.0));
 
       const result = {
@@ -400,7 +410,7 @@ export function registerSurrealTools(server: McpServer) {
         confidence: parseFloat(confidence.toFixed(2)),
         chainLength: allMems.length,
         path,
-        reasoning: `Partiu de ${seeds.length} seeds semânticas, expandiu para ${allMems.length} memórias em ${max_hops} salto(s).`,
+        reasoning: `Partiu de ${seeds.length} seeds semânticas, expandiu para ${allMems.length} memórias em ${maxHopsVal} salto(s).`,
       };
 
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };

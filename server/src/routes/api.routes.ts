@@ -66,7 +66,7 @@ apiRoutes.get("/projects/:slug/memories", async (req, res) => {
   if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
   const memories = await prisma.memory.findMany({
     where: { projectId: proj.id },
-    select: { id: true, type: true, title: true, content: true, tags: true, importance: true, accessCount: true, createdAt: true },
+    select: { id: true, type: true, title: true, content: true, tags: true, importance: true, accessCount: true, epistemicStatus: true, createdAt: true },
     orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
   });
   res.json(memories);
@@ -218,6 +218,18 @@ apiRoutes.delete("/memories/links/:id", async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "Link não encontrado" });
+  }
+});
+
+// ── Jobs assíncronos ─────────────────────────────────────────────────────────
+apiRoutes.get("/jobs/:id", async (req, res) => {
+  try {
+    const { getJobStatus } = await import("../services/queue.service.js");
+    const status = await getJobStatus(req.params.id);
+    if (!status) { res.status(404).json({ error: "Job não encontrado" }); return; }
+    res.json(status);
+  } catch {
+    res.status(500).json({ error: "Queue não disponível" });
   }
 });
 

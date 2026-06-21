@@ -51,6 +51,7 @@ model Memory {
   links      MemoryLink[]    @relation("LinkFrom")
   linkedBy   MemoryLink[]    @relation("LinkTo")
   accessLogs MemoryAccessLog[]
+  versions   MemoryVersion[]
 
   @@map("memories")
 }
@@ -215,14 +216,31 @@ model ExternalService {
   @@map("external_services")
 }
 
+model MemoryVersion {
+  id           String   @id @default(cuid())
+  memoryId     String   @map("memory_id")
+  content      String
+  title        String
+  importance   Int
+  changedAt    DateTime @default(now()) @map("changed_at")
+  changeReason String?  @map("change_reason")
+
+  memory Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@map("memory_versions")
+}
+
 model AuditLog {
-  id            String   @id @default(cuid())
-  projectId     String?  @map("project_id")
-  sessionId     String?  @map("session_id")
-  tool          String
-  input         Json
-  outputSummary String?  @map("output_summary")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id               String   @id @default(cuid())
+  projectId        String?  @map("project_id")
+  sessionId        String?  @map("session_id")
+  tool             String
+  input            Json
+  outputSummary    String?  @map("output_summary")
+  promptTokens     Int?     @map("prompt_tokens")
+  completionTokens Int?     @map("completion_tokens")
+  estimatedCostUsd Float?   @map("estimated_cost_usd")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 

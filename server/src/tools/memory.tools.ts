@@ -5,6 +5,8 @@ import { prisma } from "../config/database.js";
 import { getEmbedding } from "../services/embedding.service.js";
 import { logAudit } from "./audit.js";
 import OpenAI from "openai";
+import { openAiBreaker, withRetry } from "../services/circuit-breaker.service.js";
+import { cacheDel } from "../services/cache.service.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -130,6 +132,11 @@ export function registerMemoryTools(server: McpServer) {
       const proj = await prisma.project.findUnique({ where: { slug: project } });
       if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
 
+      const MAX_CONTENT = 12_000; // ~3000 tokens, safe para text-embedding-3-small
+      const safeContent = content.length > MAX_CONTENT
+        ? content.slice(0, MAX_CONTENT) + "\n\n[... truncado para embedding]"
+        : content;
+
       const memory = await prisma.memory.create({
         data: { projectId: proj.id, type, title, content, tags, importance },
       });
@@ -137,7 +144,9 @@ export function registerMemoryTools(server: McpServer) {
       // Gera embedding de forma assíncrona (não bloqueia a resposta)
       setImmediate(async () => {
         try {
-          const embedding = await getEmbedding(`${title}\n\n${content}`);
+          const embedding = await openAiBreaker.execute(() =>
+            withRetry(() => getEmbedding(`${title}\n\n${safeContent}`))
+          );
           await prisma.$executeRaw`
             UPDATE memories SET embedding = ${`[${embedding.join(",")}]`}::vector WHERE id = ${memory.id}
           `;
@@ -145,6 +154,9 @@ export function registerMemoryTools(server: McpServer) {
           console.error("[Embedding] Erro ao gerar:", e);
         }
       });
+
+      cacheDel(`brain:stats:${proj.slug}*`).catch(() => {});
+      cacheDel(`ctx:${proj.slug}*`).catch(() => {});
 
       await logAudit(proj.id, "memory_add", { project, type, title }, `ID: ${memory.id}`);
       return { content: [{ type: "text" as const, text: `Memória salva com sucesso! ID: ${memory.id}` }] };
@@ -166,6 +178,14 @@ export function registerMemoryTools(server: McpServer) {
       const memory = await prisma.memory.findUnique({ where: { id } });
       if (!memory) return { content: [{ type: "text" as const, text: "Memória não encontrada." }] };
 
+      // Salvar versão anterior antes de atualizar
+      if (content || title || importance) {
+        await prisma.$executeRaw`
+          INSERT INTO memory_versions (id, memory_id, content, title, importance, change_reason)
+          VALUES (${Math.random().toString(36).slice(2,14) + Date.now().toString(36)}, ${id}, ${memory.content}, ${memory.title}, ${memory.importance}, ${'manual_update'})
+        `.catch(() => {});
+      }
+
       const updateData: {
         title?: string;
         content?: string;
@@ -177,7 +197,9 @@ export function registerMemoryTools(server: McpServer) {
       // Drift tracking: se content mudou e existem embeddings, calcula drift semântico
       if (content) {
         try {
-          const embRes = await openai.embeddings.create({ model: "text-embedding-3-small", input: content });
+          const embRes = await openAiBreaker.execute(() =>
+            withRetry(() => openai.embeddings.create({ model: "text-embedding-3-small", input: content }))
+          );
           const newVec = `[${embRes.data[0].embedding.join(",")}]`;
 
           const driftRow = await prisma.$queryRaw<[{ drift: number }]>`
@@ -207,7 +229,9 @@ export function registerMemoryTools(server: McpServer) {
           try {
             const newTitle   = title   ?? memory.title;
             const newContent = memory.content;
-            const embedding  = await getEmbedding(`${newTitle}\n\n${newContent}`);
+            const embedding  = await openAiBreaker.execute(() =>
+              withRetry(() => getEmbedding(`${newTitle}\n\n${newContent}`))
+            );
             await prisma.$executeRaw`
               UPDATE memories SET embedding = ${`[${embedding.join(",")}]`}::vector WHERE id = ${id}
             `;
@@ -215,6 +239,13 @@ export function registerMemoryTools(server: McpServer) {
             console.error("[Embedding] Erro ao atualizar:", e);
           }
         });
+      }
+
+      // Cache invalidation — buscar slug do projeto
+      const proj = await prisma.project.findUnique({ where: { id: memory.projectId }, select: { slug: true } });
+      if (proj) {
+        cacheDel(`brain:stats:${proj.slug}*`).catch(() => {});
+        cacheDel(`ctx:${proj.slug}*`).catch(() => {});
       }
 
       return { content: [{ type: "text" as const, text: `Memória ${id} atualizada.` }] };
