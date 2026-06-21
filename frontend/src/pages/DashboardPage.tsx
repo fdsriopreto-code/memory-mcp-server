@@ -3,6 +3,15 @@ import { api } from "../services/api";
 import { useLiveAudit } from "../hooks/useLiveAudit";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+type SystemHealth = {
+  circuitBreaker: { state: "CLOSED" | "OPEN" | "HALF_OPEN"; failures: number };
+  redis: "connected" | "error" | "unavailable";
+  queue: { active: number; waiting: number; completed: number; failed: number };
+  tokensToday: number;
+  costTodayUsd: number;
+  uptime: number;
+};
+
 type Stats = {
   totals: { projects: number; memories: number; tasks: number; auditLogs: number; logsToday: number };
   memoriesByType:  { type: string; count: number }[];
@@ -186,6 +195,146 @@ function fillDays(raw: { day: string; count: number }[], days = 14) {
     });
   }
   return result;
+}
+
+// ── System Observatory ────────────────────────────────────────────────────────
+function fmtUptime(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function SystemObservatory() {
+  const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [err,    setErr]    = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api.get<SystemHealth>("/api/system/health");
+      setHealth(data); setErr(false);
+    } catch { setErr(true); }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const cb = health?.circuitBreaker;
+  const cbColor = cb?.state === "CLOSED" ? "#10b981" : cb?.state === "OPEN" ? "#ef4444" : "#f59e0b";
+  const cbLabel = cb?.state ?? "—";
+
+  const redisColor = health?.redis === "connected" ? "#10b981" : health?.redis === "error" ? "#ef4444" : "#6b7280";
+  const redisLabel = health?.redis ?? "—";
+
+  return (
+    <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <p className="text-sm font-semibold text-white">🔭 System Observatory</p>
+          <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>
+            Estado em tempo real do sistema · refresh 30s
+          </p>
+        </div>
+        <button onClick={load}
+          className="text-xs px-3 py-1.5 rounded-xl border transition-all"
+          style={{ background: "rgba(99,102,241,0.08)", borderColor: "rgba(99,102,241,0.2)", color: "rgba(165,180,252,0.8)" }}>
+          ↻
+        </button>
+      </div>
+
+      {err && (
+        <p className="text-xs text-center py-4" style={{ color: "rgba(255,255,255,0.3)" }}>
+          Não foi possível carregar — sistema pode não ter Redis/fila.
+        </p>
+      )}
+
+      {!err && (
+        <div className="grid grid-cols-3 gap-3">
+          {/* Circuit Breaker */}
+          <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Circuit Breaker
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: cbColor }} />
+              <span className="text-sm font-bold" style={{ color: cbColor }}>{cbLabel}</span>
+            </div>
+            {health?.circuitBreaker && (
+              <p className="text-[10px] mt-1" style={{ color: "rgba(255,255,255,0.25)" }}>
+                {health.circuitBreaker.failures} falhas
+              </p>
+            )}
+          </div>
+
+          {/* Redis */}
+          <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Redis
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: redisColor }} />
+              <span className="text-sm font-bold" style={{ color: redisColor }}>{redisLabel}</span>
+            </div>
+          </div>
+
+          {/* Queue */}
+          <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Queue
+            </p>
+            {health?.queue ? (
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px]" style={{ color: "#6366f1" }}>Ativo</span>
+                  <span className="text-[11px] font-bold" style={{ color: "#6366f1" }}>{health.queue.active}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>Aguardando</span>
+                  <span className="text-[11px] font-mono" style={{ color: "rgba(255,255,255,0.5)" }}>{health.queue.waiting}</span>
+                </div>
+              </div>
+            ) : <span className="text-sm text-white/20">—</span>}
+          </div>
+
+          {/* Tokens today */}
+          <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Tokens Hoje
+            </p>
+            <p className="text-lg font-bold text-white tabular-nums">
+              {health?.tokensToday != null ? fmtNum(health.tokensToday) : "—"}
+            </p>
+          </div>
+
+          {/* Cost today */}
+          <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Custo Hoje
+            </p>
+            <p className="text-lg font-bold tabular-nums" style={{ color: "#10b981" }}>
+              {health?.costTodayUsd != null
+                ? (health.costTodayUsd < 0.001 ? "< $0.001" : `$${health.costTodayUsd.toFixed(4)}`)
+                : "—"}
+            </p>
+          </div>
+
+          {/* Uptime */}
+          <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Uptime
+            </p>
+            <p className="text-lg font-bold text-white tabular-nums">
+              {health?.uptime != null ? fmtUptime(health.uptime) : "—"}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -472,6 +621,9 @@ export default function DashboardPage() {
           Redis cache de 7 dias evita re-embedding de conteúdos iguais
         </p>
       </div>
+
+      {/* ── System Observatory ── */}
+      <SystemObservatory />
 
     </div>
   );
