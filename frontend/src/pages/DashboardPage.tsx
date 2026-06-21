@@ -22,6 +22,7 @@ const TYPE_COLOR: Record<string, string> = {
   NOTE:         "#f59e0b",
   BUG_FIX:      "#ef4444",
   ARCHITECTURE: "#8b5cf6",
+  BRAIN:        "#ec4899",
 };
 const STATUS_COLOR: Record<string, string> = {
   OPEN: "#6b7280", IN_PROGRESS: "#3b82f6", DONE: "#10b981", CANCELLED: "#ef4444",
@@ -56,13 +57,17 @@ function fmtNum(n: number) {
 
 // ── Small Components ──────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, grad }: { label: string; value: string | number; sub?: string; grad: string }) {
+function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent: string }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gray-900 p-5 group">
-      <div className={`absolute inset-0 bg-gradient-to-br ${grad} opacity-[0.06] group-hover:opacity-[0.10] transition-opacity`} />
-      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest">{label}</p>
-      <p className="mt-2 text-[2rem] font-bold text-white tabular-nums leading-none">{value}</p>
-      {sub && <p className="mt-1.5 text-[11px] text-gray-600">{sub}</p>}
+    <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] p-5 group transition-all hover:border-white/[0.10]"
+      style={{ background: "linear-gradient(135deg, #0d1117 0%, #0a0d18 100%)" }}>
+      <div className="absolute top-0 right-0 w-20 h-20 rounded-full opacity-[0.08] group-hover:opacity-[0.13] transition-opacity blur-2xl"
+        style={{ background: accent }} />
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.3)" }}>{label}</p>
+      <p className="mt-2.5 text-[1.9rem] font-bold tabular-nums leading-none text-white">{value}</p>
+      {sub && <p className="mt-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.25)" }}>{sub}</p>}
+      <div className="absolute bottom-0 left-0 right-0 h-px opacity-50"
+        style={{ background: `linear-gradient(90deg, transparent, ${accent}44, transparent)` }} />
     </div>
   );
 }
@@ -234,31 +239,35 @@ export default function DashboardPage() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Dashboard</h1>
-          <p className="text-[11px] text-gray-600 mt-0.5">
+          <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
+          <p className="text-[11px] mt-1" style={{ color: "rgba(255,255,255,0.25)" }}>
             Atualizado às {updatedAt.toLocaleTimeString("pt-BR")} · auto-refresh 30s
           </p>
         </div>
         <button onClick={load}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-900 border border-gray-800 rounded-xl text-gray-400 hover:text-white hover:border-gray-700 transition-colors">
-          ↻ Atualizar
+          className="flex items-center gap-2 px-4 py-2 text-xs rounded-xl border transition-all"
+          style={{ background: "rgba(99,102,241,0.08)", borderColor: "rgba(99,102,241,0.2)", color: "rgba(165,180,252,0.8)" }}
+          onMouseOver={e => (e.currentTarget.style.background = "rgba(99,102,241,0.15)")}
+          onMouseOut={e  => (e.currentTarget.style.background = "rgba(99,102,241,0.08)")}>
+          <svg fill="none" viewBox="0 0 16 16" className="w-3.5 h-3.5"><path d="M13.5 8A5.5 5.5 0 012.5 8a5.5 5.5 0 019.18-4.09M13.5 2.5V6h-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          Atualizar
         </button>
       </div>
 
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-5 gap-3">
-        <StatCard label="Projetos"   value={stats.totals.projects}  grad="from-indigo-500 to-purple-600" />
-        <StatCard label="Memórias"   value={stats.totals.memories}  sub={`~${fmtNum(stats.embeddings.estimatedTokens)} tokens`} grad="from-emerald-500 to-teal-600" />
-        <StatCard label="Tasks"      value={stats.totals.tasks}     grad="from-blue-500 to-cyan-600" />
-        <StatCard label="Logs hoje"  value={stats.totals.logsToday} sub={`${fmtNum(stats.totals.auditLogs)} total`} grad="from-amber-500 to-orange-600" />
-        <StatCard label="Embed cost" value={costStr}                sub="text-embedding-3-small" grad="from-rose-500 to-pink-600" />
+        <StatCard label="Projetos"   value={stats.totals.projects}  accent="#6366f1" />
+        <StatCard label="Memórias"   value={stats.totals.memories}  sub={`~${fmtNum(stats.embeddings.estimatedTokens)} tokens`} accent="#10b981" />
+        <StatCard label="Tasks"      value={stats.totals.tasks}     accent="#3b82f6" />
+        <StatCard label="Logs hoje"  value={stats.totals.logsToday} sub={`${fmtNum(stats.totals.auditLogs)} total`} accent="#f59e0b" />
+        <StatCard label="Embed cost" value={costStr}                sub="text-embedding-3-small" accent="#ec4899" />
       </div>
 
       {/* ── Activity Chart + Donut ── */}
       <div className="grid grid-cols-3 gap-4">
 
         {/* Activity */}
-        <div className="col-span-2 rounded-2xl border border-white/5 bg-gray-900 p-5">
+        <div className="col-span-2 rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-sm font-semibold text-white">Atividade — 14 dias</p>
@@ -292,7 +301,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Donut */}
-        <div className="rounded-2xl border border-white/5 bg-gray-900 p-5">
+        <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
           <p className="text-sm font-semibold text-white">Tipos de Memória</p>
           <p className="text-[11px] text-gray-500 mb-4">Distribuição por categoria</p>
           <div className="flex items-center gap-4">
@@ -319,9 +328,9 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-4">
 
         {/* Top Tools */}
-        <div className="rounded-2xl border border-white/5 bg-gray-900 p-5">
-          <p className="text-sm font-semibold text-white">Ferramentas Mais Usadas</p>
-          <p className="text-[11px] text-gray-500 mb-4">Total de chamadas por ferramenta</p>
+        <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
+          <p className="text-sm font-semibold text-white tracking-tight">Ferramentas Mais Usadas</p>
+          <p className="text-[11px] mb-4 mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>Total de chamadas por ferramenta</p>
           <div className="space-y-0.5">
             {stats.topTools.map(t => (
               <HBar key={t.tool} label={t.tool} value={t.count} max={topTool} color={toolColor(t.tool)} />
@@ -333,9 +342,9 @@ export default function DashboardPage() {
         </div>
 
         {/* Task Distribution */}
-        <div className="rounded-2xl border border-white/5 bg-gray-900 p-5">
-          <p className="text-sm font-semibold text-white">Tasks</p>
-          <p className="text-[11px] text-gray-500 mb-4">Por status e prioridade</p>
+        <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
+          <p className="text-sm font-semibold text-white tracking-tight">Tasks</p>
+          <p className="text-[11px] mb-4 mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>Por status e prioridade</p>
 
           <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest mb-2">Status</p>
           <div className="space-y-0.5 mb-5">
@@ -357,9 +366,9 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 gap-4">
 
         {/* Most accessed memories */}
-        <div className="rounded-2xl border border-white/5 bg-gray-900 p-5">
-          <p className="text-sm font-semibold text-white">Memórias Mais Acessadas</p>
-          <p className="text-[11px] text-gray-500 mb-4">O Claude busca estas com mais frequência</p>
+        <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
+          <p className="text-sm font-semibold text-white tracking-tight">Memórias Mais Acessadas</p>
+          <p className="text-[11px] mb-4 mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>O Claude busca estas com mais frequência</p>
 
           {stats.mostAccessed.length === 0 ? (
             <p className="text-xs text-gray-700 py-6 text-center">
@@ -393,7 +402,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Live feed */}
-        <div className="rounded-2xl border border-white/5 bg-gray-900 p-5">
+        <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-semibold text-white">Atividade Recente</p>
@@ -436,7 +445,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Embedding Cost Detail ── */}
-      <div className="rounded-2xl border border-white/5 bg-gray-900 p-5">
+      <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
         <div className="flex items-center gap-2 mb-4">
           <p className="text-sm font-semibold text-white">Uso de Embeddings OpenAI</p>
           <span className="text-[10px] px-2 py-0.5 rounded-full border border-gray-700 text-gray-500">

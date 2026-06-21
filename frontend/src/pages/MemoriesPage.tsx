@@ -9,7 +9,7 @@ type Memory = {
 };
 type Project = { id: string; name: string; slug: string; color: string };
 
-const TYPES = ["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"] as const;
+const TYPES = ["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE","BRAIN"] as const;
 
 const TYPE_META: Record<string, { bg: string; text: string; dot: string }> = {
   DECISION:     { bg: "bg-violet-500/15", text: "text-violet-300",  dot: "#8b5cf6" },
@@ -18,6 +18,7 @@ const TYPE_META: Record<string, { bg: string; text: string; dot: string }> = {
   NOTE:         { bg: "bg-yellow-500/15", text: "text-yellow-300",  dot: "#f59e0b" },
   BUG_FIX:      { bg: "bg-red-500/15",    text: "text-red-300",     dot: "#ef4444" },
   ARCHITECTURE: { bg: "bg-orange-500/15", text: "text-orange-300",  dot: "#f97316" },
+  BRAIN:        { bg: "bg-pink-500/15",   text: "text-pink-300",    dot: "#ec4899" },
 };
 
 function ImportanceDots({ value }: { value: number }) {

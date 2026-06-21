@@ -87,6 +87,63 @@ apiRoutes.delete("/memories/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Brain Stats ───────────────────────────────────────────────────────────────
+apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
+  const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+  if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+  const [total, pinned, byType, topAccessed, pinnedMemories, brainMemories, linksCount, recentLinks, embRow] = await Promise.all([
+    prisma.memory.count({ where: { projectId: proj.id } }),
+    prisma.memory.count({ where: { projectId: proj.id, isPinned: true } }),
+    prisma.memory.groupBy({ by: ["type"], where: { projectId: proj.id }, _count: { id: true }, orderBy: { _count: { id: "desc" } } }),
+    prisma.memory.findMany({
+      where: { projectId: proj.id },
+      orderBy: [{ accessCount: "desc" }],
+      take: 7,
+      select: { id: true, title: true, type: true, importance: true, accessCount: true },
+    }),
+    prisma.memory.findMany({
+      where: { projectId: proj.id, isPinned: true },
+      include: {
+        links:    { select: { id: true } },
+        linkedBy: { select: { id: true } },
+      },
+      take: 10,
+    }),
+    prisma.memory.findMany({
+      where: { projectId: proj.id, type: "BRAIN" },
+      orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
+      take: 5,
+      select: { id: true, title: true, content: true, importance: true, createdAt: true },
+    }),
+    prisma.memoryLink.count({ where: { from: { projectId: proj.id } } }),
+    prisma.memoryLink.findMany({
+      where: { from: { projectId: proj.id } },
+      include: { from: { select: { title: true } }, to: { select: { title: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    prisma.$queryRaw<[{ count: bigint }]>`
+      SELECT COUNT(*) AS count FROM memories WHERE project_id = ${proj.id} AND embedding IS NOT NULL
+    `,
+  ]);
+
+  res.json({
+    total,
+    pinned,
+    withEmbedding: Number((embRow as any)[0]?.count ?? 0),
+    links: linksCount,
+    byType: byType.map(t => ({ type: t.type, count: t._count.id })),
+    topAccessed,
+    pinnedMemories: pinnedMemories.map(m => ({
+      id: m.id, title: m.title, type: m.type, importance: m.importance, content: m.content,
+      linkCount: m.links.length + m.linkedBy.length,
+    })),
+    brainMemories,
+    recentLinks: recentLinks.map(l => ({ fromTitle: l.from.title, toTitle: l.to.title, relation: l.relation })),
+  });
+});
+
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 apiRoutes.get("/projects/:slug/tasks", async (req, res) => {
   const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
