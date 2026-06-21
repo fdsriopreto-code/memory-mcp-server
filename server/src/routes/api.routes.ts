@@ -499,7 +499,7 @@ apiRoutes.post("/projects/:slug/brain/chat", async (req, res) => {
 
     // 1. Gerar embedding
     type EmbRes = Awaited<ReturnType<typeof openai.embeddings.create>>;
-    type ChatRes = Awaited<ReturnType<typeof openai.chat.completions.create>>;
+    type ChatRes = { choices: { message: { content: string | null } }[] };
     const embRes = await openAiBreaker.execute(() =>
       withRetry(() => openai.embeddings.create({ model: "text-embedding-3-small", input: query }))
     ) as EmbRes;
