@@ -65,10 +65,17 @@ export function registerBrainTools(server: McpServer) {
         m.createdAt < staleCutoff
       );
 
-      // 4. Possíveis duplicatas via pgvector
+      // 4. Contagem de embeddings via raw SQL (embedding é Unsupported no Prisma client)
+      const [embResult] = await prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql`
+        SELECT COUNT(*) AS count FROM memories
+        WHERE project_id = ${proj.id} AND embedding IS NOT NULL
+      `);
+      const withEmbCount = Number(embResult?.count ?? 0);
+      const noEmb = total - withEmbCount;
+
+      // 5. Possíveis duplicatas via pgvector
       let duplicates: DuplicatePair[] = [];
-      const withEmbeddings = memories.filter(m => m.embedding !== null);
-      if (withEmbeddings.length >= 2) {
+      if (withEmbCount >= 2) {
         duplicates = await prisma.$queryRaw<DuplicatePair[]>(Prisma.sql`
           SELECT
             a.id    AS a_id, a.title AS a_title,
@@ -85,9 +92,6 @@ export function registerBrainTools(server: McpServer) {
           LIMIT 10
         `);
       }
-
-      // 5. Memórias sem embedding
-      const noEmb = memories.filter(m => m.embedding === null).length;
 
       // 6. Memórias pinadas
       const pinned = memories.filter(m => m.isPinned);
