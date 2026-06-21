@@ -5,6 +5,8 @@ import { prisma } from "../config/database.js";
 import { getEmbedding } from "../services/embedding.service.js";
 import { extractMemoriesFromText, consolidateMemoriesWithAI } from "../services/ai.service.js";
 import { logAudit } from "./audit.js";
+import { cacheGetOrSet } from "../services/cache.service.js";
+import { openAiBreaker, withRetry } from "../services/circuit-breaker.service.js";
 
 type SemanticRow = {
   id: string; title: string; content: string; type: string;
@@ -25,15 +27,19 @@ export function registerBrain2Tools(server: McpServer) {
       const proj = await prisma.project.findUnique({ where: { slug: project } });
       if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
 
-      const [pinnedMemories, tasks, brainNotes, totalCount, embRow] = await Promise.all([
-        prisma.memory.findMany({
-          where: { projectId: proj.id, isPinned: true },
-          orderBy: [{ importance: "desc" }],
-          include: {
-            links:    { select: { relation: true, to:   { select: { id: true, title: true, type: true } } } },
-            linkedBy: { select: { relation: true, from: { select: { id: true, title: true, type: true } } } },
-          },
-        }),
+      const [pinnedMemories, tasks, brainNotes, stats] = await Promise.all([
+        cacheGetOrSet(
+          `brain:pinned:${proj.id}`,
+          () => prisma.memory.findMany({
+            where: { projectId: proj.id, isPinned: true },
+            orderBy: [{ importance: "desc" }],
+            include: {
+              links:    { select: { relation: true, to:   { select: { id: true, title: true, type: true } } } },
+              linkedBy: { select: { relation: true, from: { select: { id: true, title: true, type: true } } } },
+            },
+          }),
+          120
+        ),
         prisma.task.findMany({
           where: { projectId: proj.id, status: { in: ["OPEN", "IN_PROGRESS"] } },
           orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
@@ -45,19 +51,31 @@ export function registerBrain2Tools(server: McpServer) {
           take: 2,
           select: { title: true, content: true, importance: true },
         }),
-        prisma.memory.count({ where: { projectId: proj.id } }),
-        prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql`
-          SELECT COUNT(*) AS count FROM memories WHERE project_id = ${proj.id} AND embedding IS NOT NULL
-        `),
+        cacheGetOrSet(
+          `brain:stats:${proj.id}`,
+          async () => {
+            const [totalCount, embRow] = await Promise.all([
+              prisma.memory.count({ where: { projectId: proj.id } }),
+              prisma.$queryRaw<[{ count: bigint }]>(Prisma.sql`
+                SELECT COUNT(*) AS count FROM memories WHERE project_id = ${proj.id} AND embedding IS NOT NULL
+              `),
+            ]);
+            return { totalCount, withEmb: Number(embRow[0]?.count ?? 0) };
+          },
+          60
+        ),
       ]);
 
-      const withEmb  = Number(embRow[0]?.count ?? 0);
+      const totalCount = stats.totalCount;
+      const withEmb = stats.withEmb;
+
       const pinnedIds = pinnedMemories.map(m => m.id);
 
       // Busca semântica pelo foco (ou top por importância se sem foco)
       let focusMemories: { id: string; title: string; content: string; type: string; importance: number }[] = [];
       if (focus && withEmb > 0) {
-        const vec = `[${(await getEmbedding(focus)).join(",")}]`;
+        const focusEmb = await openAiBreaker.execute(() => withRetry(() => getEmbedding(focus)));
+        const vec = `[${focusEmb.join(",")}]`;
         const exclude = pinnedIds.length > 0 ? Prisma.sql`AND m.id NOT IN (${Prisma.join(pinnedIds)})` : Prisma.empty;
         focusMemories = await prisma.$queryRaw<SemanticRow[]>(Prisma.sql`
           SELECT m.id, m.title, m.content, m.type, m.importance

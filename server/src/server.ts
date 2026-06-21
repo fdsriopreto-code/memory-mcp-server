@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Request, Response } from "express";
@@ -30,17 +31,42 @@ export function createMcpServer(): McpServer {
   return server;
 }
 
+// Sessões em memória (para produção multi-pod, usar Redis)
+const sessions = new Map<string, { server: McpServer; lastUsed: number }>();
+
+// Cleanup de sessões expiradas (30 min)
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60_000;
+  for (const [id, s] of sessions) {
+    if (s.lastUsed < cutoff) sessions.delete(id);
+  }
+}, 5 * 60_000);
+
 export async function handleMcpRequest(req: Request, res: Response): Promise<void> {
-  const server = createMcpServer();
+  const existingSessionId = req.headers["mcp-session-id"] as string | undefined;
+
+  let mcpServer: McpServer;
+  if (existingSessionId && sessions.has(existingSessionId)) {
+    const s = sessions.get(existingSessionId)!;
+    s.lastUsed = Date.now();
+    mcpServer = s.server;
+  } else {
+    mcpServer = createMcpServer();
+  }
+
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless — cada request é independente
+    sessionIdGenerator: () => {
+      const id = randomUUID();
+      sessions.set(id, { server: mcpServer, lastUsed: Date.now() });
+      return id;
+    },
   });
 
   res.on("close", () => {
     transport.close().catch(() => {});
-    server.close().catch(() => {});
+    // NÃO fecha o server aqui — sessão pode continuar
   });
 
-  await server.connect(transport);
+  await mcpServer.connect(transport);
   await transport.handleRequest(req, res, req.body);
 }
