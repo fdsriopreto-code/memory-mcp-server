@@ -1,0 +1,3 @@
+-- CRE: Cognitive Resonance Evolution module migration
+ALTER TABLE memory_links ADD COLUMN IF NOT EXISTS weight FLOAT NOT NULL DEFAULT 1.0;
+ALTER TABLE memory_links ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
