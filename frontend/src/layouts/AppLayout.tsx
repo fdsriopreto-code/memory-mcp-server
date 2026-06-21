@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useWs } from "../contexts/WsContext";
 import { useTheme } from "../contexts/ThemeContext";
 import type { AuditLog } from "../hooks/useLiveAudit";
 import ClaudeWidget from "../components/ClaudeWidget";
+import { api } from "../services/api";
 
 // ── SVG Icons ─────────────────────────────────────────────────────────────────
 const Icon = {
@@ -23,6 +24,9 @@ const Icon = {
   logout:     <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M8 3H5a2 2 0 00-2 2v10a2 2 0 002 2h3M12 7l4 3-4 3M15.5 10H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   sun:        <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   moon:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  chat:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H6l-4 3V5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+  jobs:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 6v4l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+  pulse:      <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M2 10h3l2-5 3 10 2-7 2 4 2-2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
 };
 
 const NAV = [
@@ -30,6 +34,8 @@ const NAV = [
   { to: "/agents",         label: "Agentes",     icon: Icon.agents,    badge: "live" },
   { to: "/brain",          label: "Brain",       icon: Icon.brain,     badge: "hot"  },
   { to: "/brain-graph",    label: "Brain Graph", icon: Icon.graph,     badge: "hot"  },
+  { to: "/chat",           label: "Chat Brain",  icon: Icon.chat,      badge: "new"  },
+  { to: "/jobs",           label: "Jobs",        icon: Icon.jobs,      badge: null   },
   { to: "/search",         label: "Busca",       icon: Icon.search,    badge: null   },
   { to: "/projects",       label: "Projetos",    icon: Icon.projects,  badge: null   },
   { to: "/memories",       label: "Memórias",    icon: Icon.memories,  badge: null   },
@@ -41,6 +47,67 @@ const NAV = [
 ];
 
 const FULLSCREEN_ROUTES = ["/brain-graph"];
+
+// ── BrainPulse ────────────────────────────────────────────────────────────────
+type BrainStats = { healthScore?: number; total?: number };
+type Project    = { slug: string; name: string };
+
+function BrainPulse({ footerBtnColor }: { footerBtnColor: string }) {
+  const { subscribe } = useWs();
+  const [healthScore, setHealthScore] = useState<number | null>(null);
+  const [flash, setFlash] = useState(false);
+  const cacheTs = useRef<number>(0);
+
+  const load = useCallback(async () => {
+    try {
+      const projects = await api.get<Project[]>("/api/projects");
+      if (!projects.length) return;
+      const stats = await api.get<BrainStats>(`/api/projects/${projects[0].slug}/brain-stats`);
+      const score = stats.healthScore ?? (
+        stats.total !== undefined
+          ? Math.min(100, Math.round((stats.total ?? 0) * 2))
+          : null
+      );
+      setHealthScore(score);
+      cacheTs.current = Date.now();
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (Date.now() - cacheTs.current > 60_000) load();
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  useEffect(() => {
+    return subscribe("refresh", () => {
+      setFlash(true);
+      setTimeout(() => setFlash(false), 800);
+      if (Date.now() - cacheTs.current > 10_000) load();
+    });
+  }, [subscribe, load]);
+
+  if (healthScore === null) return null;
+
+  const color = healthScore >= 80 ? "#10b981" : healthScore >= 50 ? "#f59e0b" : "#ef4444";
+
+  return (
+    <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all ${flash ? "opacity-100" : "opacity-80"}`}
+      style={{ background: flash ? `${color}15` : "transparent" }}>
+      <span className="relative shrink-0 flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
+          style={{ background: color }} />
+        <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: color }} />
+      </span>
+      <span className="text-[11px] font-medium" style={{ color: footerBtnColor }}>
+        Brain: {healthScore}/100
+      </span>
+    </div>
+  );
+}
 
 export default function AppLayout() {
   const { logout }   = useAuth();
@@ -203,6 +270,12 @@ export default function AppLayout() {
                       AI
                     </span>
                   )}
+                  {badge === "new" && !isActive && (
+                    <span className="relative z-10 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{ background: "rgba(6,182,212,0.15)", color: "#22d3ee" }}>
+                      NEW
+                    </span>
+                  )}
                 </>
               )}
             </NavLink>
@@ -229,6 +302,9 @@ export default function AppLayout() {
             {isDark ? Icon.sun : Icon.moon}
             <span className="text-[13px]">{isDark ? "Tema claro" : "Tema escuro"}</span>
           </button>
+
+          {/* Brain Pulse */}
+          <BrainPulse footerBtnColor={S.footerBtn as string} />
 
           {/* Logout */}
           <button onClick={handleLogout}

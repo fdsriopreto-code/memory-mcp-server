@@ -9,7 +9,16 @@ type Memory = {
   epistemicStatus?: string;
 };
 type Project = { id: string; name: string; slug: string; color: string };
-type View = "card" | "list";
+type View = "card" | "list" | "kanban";
+
+type VersionEntry = {
+  id: string;
+  title: string;
+  content: string;
+  importance: number;
+  changed_at: string;
+  change_reason: string | null;
+};
 
 const TYPES = ["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE","BRAIN"] as const;
 
@@ -55,8 +64,258 @@ function EpistemicBadge({ status }: { status?: string }) {
   );
 }
 
-function MemoryCard({ mem, onDelete, expanded, onToggle }: {
+// ── Version History Modal ─────────────────────────────────────────────────────
+function VersionHistoryModal({ memoryId, memoryTitle, onClose }: {
+  memoryId: string; memoryTitle: string; onClose: () => void;
+}) {
+  const [versions, setVersions] = useState<VersionEntry[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<VersionEntry[]>(`/api/memories/${memoryId}/versions`)
+      .then(setVersions)
+      .catch(() => setVersions([]))
+      .finally(() => setLoading(false));
+  }, [memoryId]);
+
+  function fmtDate(iso: string) {
+    const d = new Date(iso);
+    const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (diff === 0) return "Hoje";
+    if (diff === 1) return "Ontem";
+    if (diff < 7)  return `há ${diff} dias`;
+    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div className="px-5 py-4 flex items-center justify-between"
+          style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <p className="text-sm font-bold" style={{ color: "var(--text-1)" }}>Histórico de Versões</p>
+            <p className="text-xs mt-0.5 truncate" style={{ color: "var(--text-3)" }}>{memoryTitle}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-red-500/10 transition-colors"
+            style={{ color: "var(--text-3)" }}>
+            <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+            </div>
+          )}
+
+          {!loading && versions.length === 0 && (
+            <div className="text-center py-10">
+              <p className="text-sm" style={{ color: "var(--text-3)" }}>Nenhuma versão anterior.</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-3)" }}>
+                O histórico é criado automaticamente a partir do próximo update.
+              </p>
+            </div>
+          )}
+
+          {!loading && versions.map((v, i) => {
+            const isExp = expanded === v.id;
+            const next  = versions[i + 1];
+            return (
+              <div key={v.id} className="rounded-xl overflow-hidden"
+                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+                {/* Version header */}
+                <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                  onClick={() => setExpanded(isExp ? null : v.id)}>
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs shrink-0"
+                    style={{ background: "var(--bg-card)", color: "var(--text-3)" }}>
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate" style={{ color: "var(--text-1)" }}>{v.title}</p>
+                    <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--text-3)" }}>
+                      {v.content.slice(0, 80)}{v.content.length > 80 ? "…" : ""}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] font-medium" style={{ color: "var(--text-2)" }}>{fmtDate(v.changed_at)}</p>
+                    {v.change_reason && (
+                      <p className="text-[9px] mt-0.5" style={{ color: "var(--text-3)" }}>{v.change_reason}</p>
+                    )}
+                  </div>
+                  <span style={{ color: "var(--text-3)", fontSize: "10px" }}>{isExp ? "▲" : "▼"}</span>
+                </div>
+
+                {/* Diff view */}
+                {isExp && (
+                  <div className="px-4 pb-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-lg p-3 text-[11px] leading-relaxed whitespace-pre-wrap"
+                        style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", color: "var(--text-2)" }}>
+                        <p className="text-[9px] font-bold mb-2" style={{ color: "#ef4444" }}>
+                          {next ? `VERSÃO ${versions.length - i}` : "ORIGINAL"}
+                        </p>
+                        {v.content}
+                      </div>
+                      <div className="rounded-lg p-3 text-[11px] leading-relaxed whitespace-pre-wrap"
+                        style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)", color: "var(--text-2)" }}>
+                        <p className="text-[9px] font-bold mb-2" style={{ color: "#10b981" }}>
+                          {i === 0 ? "ATUAL" : `VERSÃO ${versions.length - i - 1}`}
+                        </p>
+                        {i === 0
+                          ? <em style={{ color: "var(--text-3)" }}>(versão atual — no conteúdo da memória)</em>
+                          : versions[i - 1]?.content}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Kanban Column ─────────────────────────────────────────────────────────────
+type KanbanStatus = "HYPOTHESIS" | "VALIDATED" | "CONTESTED" | "DEPRECATED";
+
+const KANBAN_COLS: { key: KanbanStatus; label: string; color: string; bg: string }[] = [
+  { key: "HYPOTHESIS",  label: "Hipótese",   color: "#f59e0b", bg: "rgba(245,158,11,0.08)" },
+  { key: "VALIDATED",   label: "Validado",   color: "#10b981", bg: "rgba(16,185,129,0.08)" },
+  { key: "CONTESTED",   label: "Contestado", color: "#ef4444", bg: "rgba(239,68,68,0.08)"  },
+  { key: "DEPRECATED",  label: "Obsoleto",   color: "#6b7280", bg: "rgba(107,114,128,0.08)" },
+];
+
+function KanbanView({ memories, onStatusChange, onVersionHistory }: {
+  memories: Memory[];
+  onStatusChange: (id: string, newStatus: string) => Promise<void>;
+  onVersionHistory: (id: string) => void;
+}) {
+  const [dragId,    setDragId]    = useState<string | null>(null);
+  const [dragOver,  setDragOver]  = useState<string | null>(null);
+  const [updating,  setUpdating]  = useState<string | null>(null);
+
+  const byStatus = (status: string) =>
+    memories.filter(m => (m.epistemicStatus ?? "HYPOTHESIS") === status);
+
+  async function handleDrop(targetStatus: string) {
+    if (!dragId || updating) return;
+    const mem = memories.find(m => m.id === dragId);
+    if (!mem || (mem.epistemicStatus ?? "HYPOTHESIS") === targetStatus) {
+      setDragId(null); setDragOver(null); return;
+    }
+    setUpdating(dragId);
+    try {
+      await onStatusChange(dragId, targetStatus);
+    } finally {
+      setUpdating(null);
+      setDragId(null);
+      setDragOver(null);
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {KANBAN_COLS.map(col => {
+        const items = byStatus(col.key);
+        const isOver = dragOver === col.key;
+        return (
+          <div key={col.key}
+            className="rounded-2xl overflow-hidden transition-all duration-200"
+            style={{
+              background: isOver ? col.bg : "var(--bg-card)",
+              border: `1px solid ${isOver ? col.color + "66" : "var(--border)"}`,
+              minHeight: "200px",
+            }}
+            onDragOver={e => { e.preventDefault(); setDragOver(col.key); }}
+            onDragLeave={() => setDragOver(null)}
+            onDrop={() => handleDrop(col.key)}>
+
+            {/* Column header */}
+            <div className="px-3 py-3 flex items-center justify-between"
+              style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
+                <span className="text-xs font-bold" style={{ color: col.color }}>{col.label}</span>
+              </div>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+                style={{ background: `${col.color}15`, color: col.color }}>
+                {items.length}
+              </span>
+            </div>
+
+            {/* Cards */}
+            <div className="p-2 space-y-2">
+              {items.map(mem => {
+                const meta = TYPE_META[mem.type] ?? { label: mem.type, color: "#6b7280", bg: "rgba(107,114,128,0.1)", icon: "◉" };
+                const isUpd = updating === mem.id;
+                return (
+                  <div key={mem.id}
+                    draggable={!isUpd}
+                    onDragStart={() => setDragId(mem.id)}
+                    onDragEnd={() => { if (!updating) { setDragId(null); setDragOver(null); } }}
+                    className="rounded-xl p-3 cursor-grab active:cursor-grabbing transition-all hover:-translate-y-0.5 group"
+                    style={{
+                      background: isUpd ? `${meta.color}10` : "var(--bg-elevated)",
+                      border: `1px solid ${dragId === mem.id ? meta.color + "55" : "var(--border)"}`,
+                      opacity: isUpd ? 0.6 : 1,
+                    }}>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[11px] font-medium leading-snug line-clamp-2 flex-1" style={{ color: "var(--text-1)" }}>
+                        {mem.title}
+                      </p>
+                      <button
+                        onClick={e => { e.stopPropagation(); onVersionHistory(mem.id); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-[10px] px-1.5 py-0.5 rounded-lg"
+                        title="Histórico"
+                        style={{ background: "var(--bg-card)", color: "var(--text-3)" }}>
+                        🕒
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: meta.bg, color: meta.color }}>
+                        {meta.icon} {meta.label}
+                      </span>
+                      <ImportancePips value={mem.importance} />
+                    </div>
+                    {isUpd && (
+                      <div className="mt-2 flex items-center gap-1 text-[9px]" style={{ color: "var(--text-3)" }}>
+                        <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                        Atualizando…
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {items.length === 0 && (
+                <div className="flex items-center justify-center py-6">
+                  <p className="text-[10px] text-center" style={{ color: "var(--text-3)" }}>
+                    Arraste um card aqui
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MemoryCard({ mem, onDelete, onVersionHistory, expanded, onToggle }: {
   mem: Memory; onDelete: (id: string) => void;
+  onVersionHistory: (id: string) => void;
   expanded: boolean; onToggle: () => void;
 }) {
   const meta = TYPE_META[mem.type] ?? { label: mem.type, color: "#6b7280", bg: "rgba(107,114,128,0.1)", icon: "◉" };
@@ -98,11 +357,19 @@ function MemoryCard({ mem, onDelete, expanded, onToggle }: {
               {mem.title}
             </p>
           </div>
-          <button onClick={e => { e.stopPropagation(); onDelete(mem.id); }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-1 rounded-lg hover:bg-red-500/10"
-            style={{ color: "var(--text-3)" }}>
-            <svg fill="none" viewBox="0 0 14 14" className="w-3.5 h-3.5"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={e => { e.stopPropagation(); onVersionHistory(mem.id); }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-indigo-500/10 text-[10px]"
+              title="Histórico de versões"
+              style={{ color: "var(--text-3)" }}>
+              🕒
+            </button>
+            <button onClick={e => { e.stopPropagation(); onDelete(mem.id); }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-red-500/10"
+              style={{ color: "var(--text-3)" }}>
+              <svg fill="none" viewBox="0 0 14 14" className="w-3.5 h-3.5"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -147,7 +414,9 @@ function MemoryCard({ mem, onDelete, expanded, onToggle }: {
   );
 }
 
-function MemoryRow({ mem, onDelete }: { mem: Memory; onDelete: (id: string) => void }) {
+function MemoryRow({ mem, onDelete, onVersionHistory }: {
+  mem: Memory; onDelete: (id: string) => void; onVersionHistory: (id: string) => void;
+}) {
   const [exp, setExp] = useState(false);
   const meta = TYPE_META[mem.type] ?? { label: mem.type, color: "#6b7280", bg: "rgba(107,114,128,0.1)", icon: "◉" };
   return (
@@ -168,11 +437,19 @@ function MemoryRow({ mem, onDelete }: { mem: Memory; onDelete: (id: string) => v
         <span className="text-[10px] w-20 text-right shrink-0 hidden md:block" style={{ color: "var(--text-3)" }}>
           {new Date(mem.createdAt).toLocaleDateString("pt-BR")}
         </span>
-        <button onClick={e => { e.stopPropagation(); onDelete(mem.id); }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 p-1 rounded hover:bg-red-500/10"
-          style={{ color: "var(--text-3)" }}>
-          <svg fill="none" viewBox="0 0 12 12" className="w-3 h-3"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-        </button>
+        <div className="flex items-center gap-1">
+          <button onClick={e => { e.stopPropagation(); onVersionHistory(mem.id); }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-indigo-500/10 text-[10px]"
+            title="Histórico"
+            style={{ color: "var(--text-3)" }}>
+            🕒
+          </button>
+          <button onClick={e => { e.stopPropagation(); onDelete(mem.id); }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 p-1 rounded hover:bg-red-500/10"
+            style={{ color: "var(--text-3)" }}>
+            <svg fill="none" viewBox="0 0 12 12" className="w-3 h-3"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          </button>
+        </div>
       </div>
       {exp && (
         <div className="px-4 pb-3">
@@ -201,8 +478,12 @@ export default function MemoriesPage() {
   const [search,         setSearch]         = useState("");
   const [typeFilter,     setTypeFilter]     = useState<string>("");
   const [epistemicFilter, setEpistemicFilter] = useState<string>("");
-  const [view,       setView]       = useState<View>(() => (localStorage.getItem("memories-view") as View) ?? "card");
+  const [view,       setView]       = useState<View>(() => {
+    const stored = localStorage.getItem("memories-view") as View | null;
+    return stored === "card" || stored === "list" || stored === "kanban" ? stored : "card";
+  });
   const [form, setForm] = useState(EMPTY_FORM);
+  const [versionModal, setVersionModal] = useState<{ id: string; title: string } | null>(null);
   const { subscribe } = useWs();
 
   useEffect(() => { api.get<Project[]>("/api/projects").then(setProjects).catch(console.error); }, []);
@@ -274,6 +555,22 @@ export default function MemoriesPage() {
     toast.success("Removida");
   }
 
+  async function handleEpistemicStatusChange(id: string, newStatus: string) {
+    try {
+      await api.patch(`/api/memories/${id}`, { epistemicStatus: newStatus });
+      setMemories(prev => prev.map(m =>
+        m.id === id ? { ...m, epistemicStatus: newStatus } : m
+      ));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar status");
+    }
+  }
+
+  function openVersionHistory(id: string) {
+    const mem = memories.find(m => m.id === id);
+    if (mem) setVersionModal({ id, title: mem.title });
+  }
+
   const currentProject = projects.find(p => p.slug === project);
   const inputCls = "w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all focus:ring-2 focus:ring-indigo-500/30";
   const inputStyle = { background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" };
@@ -302,16 +599,28 @@ export default function MemoriesPage() {
           {/* View toggle */}
           {project && (
             <div className="flex rounded-xl overflow-hidden p-0.5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-              {(["card","list"] as const).map(v => (
-                <button key={v} onClick={() => setViewP(v)}
-                  className="px-3 py-1.5 rounded-lg transition-all"
-                  style={view === v ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--text-3)" }}>
-                  {v === "card"
-                    ? <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/></svg>
-                    : <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                  }
-                </button>
-              ))}
+              <button onClick={() => setViewP("card")}
+                className="px-3 py-1.5 rounded-lg transition-all"
+                style={view === "card" ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--text-3)" }}
+                title="Cartões">
+                <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/></svg>
+              </button>
+              <button onClick={() => setViewP("list")}
+                className="px-3 py-1.5 rounded-lg transition-all"
+                style={view === "list" ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--text-3)" }}
+                title="Lista">
+                <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              </button>
+              <button onClick={() => setViewP("kanban")}
+                className="px-3 py-1.5 rounded-lg transition-all"
+                style={view === "kanban" ? { background: "var(--accent-soft)", color: "var(--accent)" } : { color: "var(--text-3)" }}
+                title="Kanban">
+                <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4">
+                  <rect x="1" y="1" width="4" height="12" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+                  <rect x="6" y="1" width="4" height="9" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+                  <rect x="11" y="1" width="4" height="7" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+                </svg>
+              </button>
             </div>
           )}
 
@@ -455,17 +764,18 @@ export default function MemoriesPage() {
       )}
 
       {/* Memories display */}
-      {!loading && visible.length > 0 && (
+      {!loading && (view === "kanban" ? memories.length > 0 : visible.length > 0) && (
         view === "card" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {visible.map(m => (
               <MemoryCard key={m.id} mem={m}
                 expanded={expanded === m.id}
                 onToggle={() => setExpanded(expanded === m.id ? null : m.id)}
-                onDelete={handleDelete} />
+                onDelete={handleDelete}
+                onVersionHistory={openVersionHistory} />
             ))}
           </div>
-        ) : (
+        ) : view === "list" ? (
           <div className="rounded-2xl overflow-hidden"
             style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
             {/* List header */}
@@ -477,11 +787,26 @@ export default function MemoriesPage() {
               <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-3)" }}>Importância</span>
               <span className="text-[10px] font-bold uppercase tracking-widest w-12 text-right" style={{ color: "var(--text-3)" }}>Acessos</span>
               <span className="text-[10px] font-bold uppercase tracking-widest w-20 text-right hidden md:block" style={{ color: "var(--text-3)" }}>Data</span>
-              <div className="w-6" />
+              <div className="w-14" />
             </div>
-            {visible.map(m => <MemoryRow key={m.id} mem={m} onDelete={handleDelete} />)}
+            {visible.map(m => <MemoryRow key={m.id} mem={m} onDelete={handleDelete} onVersionHistory={openVersionHistory} />)}
           </div>
+        ) : (
+          <KanbanView
+            memories={project ? memories : []}
+            onStatusChange={handleEpistemicStatusChange}
+            onVersionHistory={openVersionHistory}
+          />
         )
+      )}
+
+      {/* Version History Modal */}
+      {versionModal && (
+        <VersionHistoryModal
+          memoryId={versionModal.id}
+          memoryTitle={versionModal.title}
+          onClose={() => setVersionModal(null)}
+        />
       )}
 
       {/* Empty states */}

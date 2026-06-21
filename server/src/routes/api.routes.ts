@@ -87,6 +87,44 @@ apiRoutes.delete("/memories/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+apiRoutes.patch("/memories/:id", async (req, res) => {
+  try {
+    const { title, content, importance, epistemicStatus, isPinned } = req.body as {
+      title?: string; content?: string; importance?: number;
+      epistemicStatus?: string; isPinned?: boolean;
+    };
+    const memory = await prisma.memory.update({
+      where: { id: req.params.id },
+      data: {
+        ...(title      !== undefined && { title }),
+        ...(content    !== undefined && { content }),
+        ...(importance !== undefined && { importance }),
+        ...(epistemicStatus !== undefined && { epistemicStatus: epistemicStatus as never }),
+        ...(isPinned   !== undefined && { isPinned }),
+      },
+    });
+    broadcast("refresh", { resource: "memory" });
+    res.json(memory);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.get("/memories/:id/versions", async (req, res) => {
+  try {
+    const versions = await prisma.$queryRaw<{id:string;content:string;title:string;importance:number;changed_at:Date;change_reason:string|null}[]>`
+      SELECT id, content, title, importance, changed_at, change_reason
+      FROM memory_versions
+      WHERE memory_id = ${req.params.id}
+      ORDER BY changed_at DESC
+      LIMIT 20
+    `;
+    res.json(versions);
+  } catch {
+    res.json([]);
+  }
+});
+
 // ── Brain Graph ───────────────────────────────────────────────────────────────
 apiRoutes.get("/projects/:slug/brain-graph", async (req, res) => {
   const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
@@ -222,6 +260,31 @@ apiRoutes.delete("/memories/links/:id", async (req, res) => {
 });
 
 // ── Jobs assíncronos ─────────────────────────────────────────────────────────
+apiRoutes.get("/jobs", async (_req, res) => {
+  try {
+    const { brainQueue } = await import("../services/queue.service.js");
+    if (!brainQueue) { res.json([]); return; }
+    const [active, waiting, completed, failed] = await Promise.all([
+      brainQueue.getJobs(["active"],    0, 20),
+      brainQueue.getJobs(["waiting"],   0, 20),
+      brainQueue.getJobs(["completed"], 0, 10),
+      brainQueue.getJobs(["failed"],    0, 10),
+    ]);
+    const all = [...active, ...waiting, ...completed, ...failed];
+    const result = await Promise.all(all.map(async j => ({
+      id: j.id,
+      type: j.name,
+      data: j.data,
+      state: await j.getState(),
+      progress: typeof j.progress === "number" ? j.progress : 0,
+      result: j.returnvalue,
+      error: j.failedReason,
+      createdAt: new Date(j.timestamp).toISOString(),
+    })));
+    res.json(result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+  } catch { res.json([]); }
+});
+
 apiRoutes.get("/jobs/:id", async (req, res) => {
   try {
     const { getJobStatus } = await import("../services/queue.service.js");
@@ -419,6 +482,170 @@ apiRoutes.post("/external-services/:id/test", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Brain Chat ────────────────────────────────────────────────────────────────
+apiRoutes.post("/projects/:slug/brain/chat", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
+    const { query } = req.body as { query: string };
+    if (!query?.trim()) { res.status(400).json({ error: "Query obrigatória" }); return; }
+
+    const { openAiBreaker, withRetry } = await import("../services/circuit-breaker.service.js");
+    const OpenAI = (await import("openai")).default;
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    // 1. Gerar embedding
+    type EmbRes = Awaited<ReturnType<typeof openai.embeddings.create>>;
+    type ChatRes = Awaited<ReturnType<typeof openai.chat.completions.create>>;
+    const embRes = await openAiBreaker.execute(() =>
+      withRetry(() => openai.embeddings.create({ model: "text-embedding-3-small", input: query }))
+    ) as EmbRes;
+    const vec = `[${embRes.data[0].embedding.join(",")}]`;
+
+    // 2. Busca semântica
+    const seeds = await prisma.$queryRaw<{id:string;title:string;content:string;type:string;similarity:number}[]>`
+      SELECT id, title, content, type::text,
+        (1 - (embedding <=> ${vec}::vector))::float AS similarity
+      FROM memories
+      WHERE project_id = ${proj.id} AND embedding IS NOT NULL
+        AND epistemic_status::text != 'DEPRECATED'
+      ORDER BY embedding <=> ${vec}::vector
+      LIMIT 5
+    `;
+
+    const goodSeeds = seeds.filter((s: {similarity: number}) => s.similarity > 0.65);
+
+    let answer = "";
+    let mode: "semantic" | "inferred" = "semantic";
+    let path: string[] = [];
+    let confidence = 0;
+
+    if (goodSeeds.length >= 2) {
+      // Modo semântico: sintetizar com GPT
+      const ctx = goodSeeds.map((s: {title:string;content:string}) => `[${s.title}]\n${s.content.slice(0, 300)}`).join("\n\n---\n\n");
+      const comp = await openAiBreaker.execute(() =>
+        withRetry(() => openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "Você é um assistente de conhecimento. Use as memórias fornecidas para responder de forma concisa e útil. Responda no idioma da pergunta." },
+            { role: "user", content: `Memórias relevantes:\n\n${ctx}\n\nPergunta: ${query}` },
+          ],
+          max_tokens: 800,
+          temperature: 0.3,
+        }))
+      ) as ChatRes;
+      answer = comp.choices[0].message.content ?? "";
+      confidence = goodSeeds[0].similarity;
+      mode = "semantic";
+    } else {
+      // Modo inferência: WITH RECURSIVE
+      const seedIds = seeds.map((s:{id:string}) => s.id);
+      if (seedIds.length > 0) {
+        const chain = await prisma.$queryRaw<{id:string;title:string;content:string;depth:number;via:string}[]>`
+          WITH RECURSIVE graph_walk(id, title, content, depth, via, path) AS (
+            SELECT m.id, m.title, m.content, 0, 'direct'::text, ARRAY[m.id]
+            FROM memories m WHERE m.id = ANY(${seedIds}::text[]) AND m.project_id = ${proj.id}
+            UNION ALL
+            SELECT next_m.id, next_m.title, next_m.content, gw.depth + 1,
+              ml.relation::text || ' de "' || gw.title || '"', gw.path || next_m.id
+            FROM graph_walk gw
+            JOIN memory_links ml ON (ml.from_id = gw.id OR ml.to_id = gw.id)
+            JOIN memories next_m ON (CASE WHEN ml.from_id = gw.id THEN next_m.id = ml.to_id ELSE next_m.id = ml.from_id END)
+            WHERE gw.depth < 2 AND NOT (next_m.id = ANY(gw.path)) AND next_m.project_id = ${proj.id}
+          )
+          SELECT DISTINCT ON (id) id, title, content, depth, via FROM graph_walk ORDER BY id, depth
+        `;
+        path = chain.map((c:{title:string;via:string}) => `${c.title} (${c.via})`);
+        const ctx = chain.slice(0, 8).map((c:{title:string;content:string;via:string}) => `[${c.via}]\n${c.title}: ${c.content.slice(0, 200)}`).join("\n\n");
+        const comp = await openAiBreaker.execute(() =>
+          withRetry(() => openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: "Você é um motor de raciocínio sobre grafo de conhecimento. Use a cadeia de memórias para inferir a melhor resposta possível. Seja explícito sobre o que é inferido vs diretamente conhecido. Responda no idioma da pergunta." },
+              { role: "user", content: `Cadeia de conhecimento:\n\n${ctx}\n\nPergunta: ${query}\n\nInfira a melhor resposta com base na cadeia acima.` },
+            ],
+            max_tokens: 800,
+            temperature: 0.4,
+          }))
+        ) as ChatRes;
+        answer = comp.choices[0].message.content ?? "";
+        confidence = Math.max(0.3, seeds[0]?.similarity ?? 0.3);
+        mode = "inferred";
+      } else {
+        answer = "Não encontrei memórias relevantes para esta pergunta. Tente adicionar mais contexto com `brain_learn()` ou `memory_add()`.";
+        confidence = 0;
+        mode = "semantic";
+      }
+    }
+
+    res.json({
+      answer,
+      mode,
+      confidence,
+      path,
+      sources: goodSeeds.length >= 2 ? goodSeeds.map((s:{id:string;title:string;type:string;similarity:number}) => ({
+        id: s.id, title: s.title, type: s.type, similarity: s.similarity,
+      })) : seeds.slice(0, 3).map((s:{id:string;title:string;type:string;similarity:number}) => ({
+        id: s.id, title: s.title, type: s.type, similarity: s.similarity,
+      })),
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ── System Health ─────────────────────────────────────────────────────────────
+apiRoutes.get("/system/health", async (_req, res) => {
+  try {
+    const { openAiBreaker } = await import("../services/circuit-breaker.service.js");
+    const { brainQueue } = await import("../services/queue.service.js");
+
+    // Redis ping
+    let redisStatus = "unavailable";
+    try {
+      const IORedis = (await import("ioredis")).default;
+      if (process.env.REDIS_URL) {
+        const r = new IORedis(process.env.REDIS_URL, { lazyConnect: true, connectTimeout: 2000 });
+        await r.connect();
+        await r.ping();
+        await r.quit();
+        redisStatus = "connected";
+      }
+    } catch { redisStatus = "error"; }
+
+    // Queue counts
+    let queueCounts = { active: 0, waiting: 0, completed: 0, failed: 0 };
+    if (brainQueue) {
+      const counts = await brainQueue.getJobCounts("active", "waiting", "completed", "failed");
+      queueCounts = {
+        active: counts.active ?? 0,
+        waiting: counts.waiting ?? 0,
+        completed: counts.completed ?? 0,
+        failed: counts.failed ?? 0,
+      };
+    }
+
+    // Token costs today
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    const costRow = await prisma.$queryRaw<[{total_cost: number|null; total_tokens: number|null}]>`
+      SELECT SUM(estimated_cost_usd) as total_cost, SUM(prompt_tokens + completion_tokens) as total_tokens
+      FROM audit_logs WHERE created_at >= ${todayStart}
+    `;
+
+    res.json({
+      circuitBreaker: openAiBreaker.status,
+      redis: redisStatus,
+      queue: queueCounts,
+      tokensToday: Number(costRow[0]?.total_tokens ?? 0),
+      costTodayUsd: Number(costRow[0]?.total_cost ?? 0),
+      uptime: Math.floor(process.uptime()),
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import { toast } from "sonner";
+import { useWs } from "../contexts/WsContext";
 
 type MemoryMini = { id: string; title: string; type: string };
 
@@ -92,6 +93,148 @@ function Panel({ title, sub, children, accent = "#6366f1", action }: {
         {action}
       </div>
       <div className="p-5">{children}</div>
+    </div>
+  );
+}
+
+// ── CRE Live Visualizer ───────────────────────────────────────────────────────
+const CRE_PHASES = [
+  { id: "OBSERVE",     icon: "👁",  color: "#6366f1", label: "OBSERVE",     desc: "Calcula ressonância R(m) = (acessos × imp) / (1 + λ × dias)" },
+  { id: "ASSOCIATE",   icon: "🔗",  color: "#3b82f6", label: "ASSOCIATE",   desc: "Fortalece sinapses Hebbians: w = w×0.88 + coRes×0.12" },
+  { id: "CRYSTALLIZE", icon: "⟡",  color: "#8b5cf6", label: "CRYSTALLIZE", desc: "Clusters quentes → GPT-4o-mini → cristais de conhecimento BRAIN" },
+  { id: "PRUNE",       icon: "✂",  color: "#ef4444", label: "PRUNE",       desc: "Remove sinapses com peso w < τ (threshold de poda)" },
+  { id: "EVOLVE",      icon: "🧬", color: "#10b981", label: "EVOLVE",      desc: "Auto-ajusta λ/θ/σ/τ com base no estado cognitivo observado" },
+];
+
+type PulseParams = { lambda?: number; theta?: number; sigma?: number; tau?: number };
+
+function CreVisualizer({ project }: { project: string }) {
+  const { subscribe } = useWs();
+  const [activePhase, setActivePhase] = useState<string | null>(null);
+  const [params, setParams] = useState<PulseParams>({});
+  const [isRunning, setIsRunning] = useState(false);
+  const [cmdCopied, setCmdCopied] = useState(false);
+
+  useEffect(() => {
+    if (!project) return;
+    api.get<{ lambda?: number; theta?: number; sigma?: number; tau?: number; currentPhase?: string }>(`/api/projects/${project}/brain-stats`)
+      .then(s => {
+        if ((s as Record<string, unknown>).lambda) setParams(s as PulseParams);
+      })
+      .catch(() => {});
+  }, [project]);
+
+  useEffect(() => {
+    return subscribe("refresh", (data) => {
+      const ev = data as { resource?: string };
+      if (ev.resource === "memory" || ev.resource === "memory_link") {
+        setIsRunning(true);
+        setTimeout(() => setIsRunning(false), 5000);
+      }
+    });
+  }, [subscribe]);
+
+  // Animate through phases when running
+  useEffect(() => {
+    if (!isRunning) { setActivePhase(null); return; }
+    let idx = 0;
+    const id = setInterval(() => {
+      setActivePhase(CRE_PHASES[idx % CRE_PHASES.length].id);
+      idx++;
+    }, 800);
+    return () => clearInterval(id);
+  }, [isRunning]);
+
+  function copyCmd() {
+    navigator.clipboard.writeText(`brain_synthesize(project_slug="${project}")`).then(() => {
+      setCmdCopied(true);
+      setTimeout(() => setCmdCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/[0.06] overflow-hidden"
+      style={{ background: "linear-gradient(135deg,#0a0d18 0%,#080c14 100%)" }}>
+      <div className="px-5 pt-5 pb-4 border-b border-white/[0.05] flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-1 h-4 rounded-full shrink-0" style={{ background: "#ec4899" }} />
+            <p className="text-sm font-semibold text-white tracking-tight">⟡ CRE Live Visualizer</p>
+            {isRunning && (
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold animate-pulse"
+                style={{ background: "rgba(16,185,129,0.15)", color: "#10b981" }}>
+                ● RUNNING
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] mt-1 ml-3.5" style={{ color: "rgba(255,255,255,0.28)" }}>
+            Cognitive Resonance Evolution — pipeline de 5 fases
+          </p>
+        </div>
+        <button onClick={copyCmd}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all"
+          style={{ background: "rgba(236,72,153,0.1)", color: "#f9a8d4", border: "1px solid rgba(236,72,153,0.2)" }}>
+          {cmdCopied ? "✓ Copiado!" : "⟡ Copiar comando"}
+        </button>
+      </div>
+
+      <div className="p-5">
+        {/* Phase pipeline */}
+        <div className="flex items-start gap-2 overflow-x-auto pb-2">
+          {CRE_PHASES.map((phase, i) => {
+            const isActive = activePhase === phase.id;
+            return (
+              <div key={phase.id} className="flex items-start gap-2 flex-shrink-0">
+                <div className={`w-40 rounded-xl p-3.5 border transition-all duration-300 ${isActive ? "scale-105" : ""}`}
+                  style={{
+                    background: isActive ? `${phase.color}18` : "rgba(255,255,255,0.02)",
+                    borderColor: isActive ? `${phase.color}60` : "rgba(255,255,255,0.06)",
+                    boxShadow: isActive ? `0 0 20px ${phase.color}25` : "none",
+                  }}>
+                  <div className="text-2xl text-center mb-2">{phase.icon}</div>
+                  <p className="text-[10px] font-bold font-mono text-center mb-1.5" style={{ color: phase.color }}>
+                    {phase.label}
+                  </p>
+                  <p className="text-[9px] leading-relaxed text-center" style={{ color: "rgba(255,255,255,0.35)" }}>
+                    {phase.desc}
+                  </p>
+                </div>
+                {i < CRE_PHASES.length - 1 && (
+                  <div className="flex items-center mt-5 shrink-0">
+                    <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4" style={{ color: "rgba(255,255,255,0.15)" }}>
+                      <path d="M4 10h12M12 6l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Parameters badges */}
+        <div className="flex items-center gap-2 mt-4 flex-wrap">
+          <span className="text-[10px] font-semibold" style={{ color: "rgba(255,255,255,0.3)" }}>Parâmetros:</span>
+          {[
+            { key: "λ (decay)",     val: params.lambda  },
+            { key: "θ (threshold)", val: params.theta   },
+            { key: "σ (strength)",  val: params.sigma   },
+            { key: "τ (prune)",     val: params.tau     },
+          ].map(p => (
+            <span key={p.key} className="text-[10px] font-mono px-2 py-0.5 rounded-full"
+              style={{ background: "rgba(139,92,246,0.1)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.2)" }}>
+              {p.key} = {p.val !== undefined ? p.val.toFixed(3) : "?"}
+            </span>
+          ))}
+        </div>
+
+        {/* Command to copy */}
+        <div className="mt-4 rounded-lg px-3 py-2 flex items-center gap-2"
+          style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.05)" }}>
+          <span className="text-[10px] font-mono" style={{ color: "#f9a8d4" }}>
+            brain_synthesize(project_slug="{project}")
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -540,6 +683,9 @@ export default function BrainPage() {
               </div>
             )}
           </Panel>
+
+          {/* CRE Live Visualizer */}
+          <CreVisualizer project={project} />
 
           {/* Pinned memories */}
           {stats.pinnedMemories.length > 0 && (
