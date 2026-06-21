@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useWs } from "../contexts/WsContext";
 import type { AuditLog } from "../hooks/useLiveAudit";
@@ -19,12 +19,14 @@ const Icon = {
   logs:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 7h6M7 10h6M7 13h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   services:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.05 5.05l1.42 1.42M13.54 13.54l1.41 1.41M5.05 14.95l1.42-1.42M13.54 6.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   logout:     <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M8 3H5a2 2 0 00-2 2v10a2 2 0 002 2h3M12 7l4 3-4 3M15.5 10H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  graph:      <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="5" cy="10" r="2" stroke="currentColor" strokeWidth="1.5"/><circle cx="15" cy="5" r="2" stroke="currentColor" strokeWidth="1.5"/><circle cx="15" cy="15" r="2" stroke="currentColor" strokeWidth="1.5"/><circle cx="10" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M7 10h1M13 5l-2 4M13 15l-2-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
 };
 
 const NAV = [
   { to: "/",               label: "Dashboard",   icon: Icon.dashboard,  badge: null     },
   { to: "/agents",         label: "Agentes",     icon: Icon.agents,     badge: "live"   },
   { to: "/brain",          label: "Brain",       icon: Icon.brain,      badge: "new"    },
+  { to: "/brain-graph",   label: "Brain Graph", icon: Icon.graph,      badge: "new"    },
   { to: "/search",         label: "Busca",       icon: Icon.search,     badge: null     },
   { to: "/projects",       label: "Projetos",    icon: Icon.projects,   badge: null     },
   { to: "/memories",       label: "Memórias",    icon: Icon.memories,   badge: null     },
@@ -35,10 +37,14 @@ const NAV = [
   { to: "/services",       label: "Serviços",    icon: Icon.services,   badge: null     },
 ];
 
+const FULLSCREEN_ROUTES = ["/brain-graph"];
+
 export default function AppLayout() {
   const { logout }   = useAuth();
   const navigate     = useNavigate();
+  const location     = useLocation();
   const { connected, subscribe } = useWs();
+  const isFullscreen = FULLSCREEN_ROUTES.includes(location.pathname);
   const [claudeActive, setClaudeActive] = useState(false);
   const [lastTool, setLastTool] = useState<string | null>(null);
   const lastActivity = useRef<number>(0);
@@ -171,10 +177,16 @@ export default function AppLayout() {
       </aside>
 
       {/* ── Main ── */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-6">
+      <main className="flex-1 overflow-hidden flex flex-col">
+        {isFullscreen ? (
           <Outlet />
-        </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-5xl mx-auto p-6">
+              <Outlet />
+            </div>
+          </div>
+        )}
       </main>
 
       <ClaudeWidget />

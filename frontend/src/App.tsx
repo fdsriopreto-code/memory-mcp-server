@@ -15,6 +15,7 @@ import LogsPage from "./pages/LogsPage";
 import ExternalServicesPage from "./pages/ExternalServicesPage";
 import SearchPage from "./pages/SearchPage";
 import BrainPage from "./pages/BrainPage";
+import BrainGraphPage from "./pages/BrainGraphPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -42,6 +43,7 @@ export default function App() {
               <Route path="/services"       element={<ExternalServicesPage />} />
               <Route path="/search"         element={<SearchPage />} />
               <Route path="/brain"          element={<BrainPage />} />
+              <Route path="/brain-graph"    element={<BrainGraphPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -87,6 +87,26 @@ apiRoutes.delete("/memories/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Brain Graph ───────────────────────────────────────────────────────────────
+apiRoutes.get("/projects/:slug/brain-graph", async (req, res) => {
+  const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+  if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+  const [memories, links] = await Promise.all([
+    prisma.memory.findMany({
+      where: { projectId: proj.id },
+      select: { id: true, title: true, type: true, importance: true, accessCount: true, isPinned: true, content: true },
+      orderBy: [{ importance: "desc" }],
+    }),
+    prisma.memoryLink.findMany({
+      where: { from: { projectId: proj.id } },
+      select: { fromId: true, toId: true, relation: true },
+    }),
+  ]);
+
+  res.json({ nodes: memories, edges: links });
+});
+
 // ── Brain Stats ───────────────────────────────────────────────────────────────
 apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
   const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
