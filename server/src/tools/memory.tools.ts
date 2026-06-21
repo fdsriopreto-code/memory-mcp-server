@@ -4,6 +4,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database.js";
 import { getEmbedding } from "../services/embedding.service.js";
 import { logAudit } from "./audit.js";
+import OpenAI from "openai";
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 type MemoryRow = {
   id: string;
@@ -15,6 +18,24 @@ type MemoryRow = {
   similarity: number;
   created_at: Date;
 };
+
+// ── Access logging helper ────────────────────────────────────────────────────
+async function logAccesses(memoryIds: string[], projectId: string) {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const hourOfDay = now.getHours();
+  for (const memoryId of memoryIds) {
+    await prisma.memoryAccessLog.create({
+      data: {
+        id: Math.random().toString(36).slice(2, 12) + Date.now().toString(36),
+        memoryId,
+        projectId,
+        dayOfWeek,
+        hourOfDay,
+      },
+    }).catch(() => {});
+  }
+}
 
 export function registerMemoryTools(server: McpServer) {
 
@@ -75,6 +96,8 @@ export function registerMemoryTools(server: McpServer) {
           where: { id: { in: results.map(r => r.id) } },
           data: { accessCount: { increment: 1 }, accessedAt: new Date() },
         });
+        // fire-and-forget access logging
+        logAccesses(results.map(r => r.id), proj.id).catch(() => {});
       }
 
       await logAudit(proj.id, "memory_search", { project, query, limit, type }, `${results.length} resultados`);
@@ -143,14 +166,47 @@ export function registerMemoryTools(server: McpServer) {
       const memory = await prisma.memory.findUnique({ where: { id } });
       if (!memory) return { content: [{ type: "text" as const, text: "Memória não encontrada." }] };
 
-      await prisma.memory.update({ where: { id }, data: { title, content, tags, importance } });
+      const updateData: {
+        title?: string;
+        content?: string;
+        tags?: string[];
+        importance?: number;
+        driftScore?: number;
+      } = { title, content, tags, importance };
+
+      // Drift tracking: se content mudou e existem embeddings, calcula drift semântico
+      if (content) {
+        try {
+          const embRes = await openai.embeddings.create({ model: "text-embedding-3-small", input: content });
+          const newVec = `[${embRes.data[0].embedding.join(",")}]`;
+
+          const driftRow = await prisma.$queryRaw<[{ drift: number }]>`
+            SELECT (1 - (embedding <=> ${newVec}::vector))::float as drift
+            FROM memories WHERE id = ${id} AND embedding IS NOT NULL
+          `.catch(() => [{ drift: 1.0 }]);
+
+          const semanticDistance = 1 - ((driftRow[0]?.drift) ?? 0);
+          if (semanticDistance > 0.05) {
+            updateData.driftScore = (memory.driftScore ?? 0) + semanticDistance;
+          }
+
+          // Atualiza embedding também (async, não bloqueia)
+          setImmediate(async () => {
+            await prisma.$executeRaw`
+              UPDATE memories SET embedding = ${newVec}::vector WHERE id = ${id}
+            `.catch(() => {});
+          });
+        } catch {}
+      }
+
+      await prisma.memory.update({ where: { id }, data: updateData });
       await logAudit(memory.projectId, "memory_update", { id, title, tags, importance }, `Memória ${id} atualizada`);
 
-      if (content || title) {
+      if (!content && title) {
         setImmediate(async () => {
           try {
             const newTitle   = title   ?? memory.title;
-            const newContent = content ?? memory.content;
+            const newContent = memory.content;
             const embedding  = await getEmbedding(`${newTitle}\n\n${newContent}`);
             await prisma.$executeRaw`
               UPDATE memories SET embedding = ${`[${embedding.join(",")}]`}::vector WHERE id = ${id}
@@ -228,6 +284,12 @@ export function registerMemoryTools(server: McpServer) {
         `${proj.description ?? ""}\n\n` +
         memoriesText + "\n" +
         `## Tasks abertas\n\n${tasksText}`;
+
+      // fire-and-forget access logging das top memórias retornadas
+      const allTopIds = [...pinnedMemories.map(m => m.id), ...topMemories.map(m => m.id)];
+      if (allTopIds.length > 0) {
+        logAccesses(allTopIds, proj.id).catch(() => {});
+      }
 
       await logAudit(proj.id, "project_context", { project }, `${totalMemories} memórias (${pinnedMemories.length} pinadas), ${tasks.length} tasks`);
       return { content: [{ type: "text" as const, text }] };

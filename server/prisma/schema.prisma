@@ -24,28 +24,33 @@ model Project {
   tasks         Task[]
   auditLogs     AuditLog[]
   writeRequests WriteRequest[]
+  accessLogs    MemoryAccessLog[]
 
   @@map("projects")
 }
 
 model Memory {
-  id          String     @id @default(cuid())
-  projectId   String     @map("project_id")
-  type        MemoryType
-  title       String
-  content     String
-  tags        String[]
-  importance  Int        @default(3)
-  isPinned    Boolean    @default(false) @map("is_pinned")
-  embedding   Unsupported("vector(1536)")?
-  accessCount Int        @default(0) @map("access_count")
-  accessedAt  DateTime?  @map("accessed_at")
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
+  id              String          @id @default(cuid())
+  projectId       String          @map("project_id")
+  type            MemoryType
+  title           String
+  content         String
+  tags            String[]
+  importance      Int             @default(3)
+  isPinned        Boolean         @default(false) @map("is_pinned")
+  embedding       Unsupported("vector(1536)")?
+  accessCount     Int             @default(0) @map("access_count")
+  accessedAt      DateTime?       @map("accessed_at")
+  epistemicStatus EpistemicStatus @default(HYPOTHESIS) @map("epistemic_status")
+  driftScore      Float           @default(0.0)        @map("drift_score")
+  validatedCount  Int             @default(0)          @map("validated_count")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
 
-  project  Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  links    MemoryLink[] @relation("LinkFrom")
-  linkedBy MemoryLink[] @relation("LinkTo")
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links      MemoryLink[]    @relation("LinkFrom")
+  linkedBy   MemoryLink[]    @relation("LinkTo")
+  accessLogs MemoryAccessLog[]
 
   @@map("memories")
 }
@@ -62,14 +67,24 @@ enum MemoryType {
   @@map("memory_type")
 }
 
+enum EpistemicStatus {
+  HYPOTHESIS
+  VALIDATED
+  CONTESTED
+  DEPRECATED
+
+  @@map("epistemic_status")
+}
+
 model MemoryLink {
-  id        String   @id @default(cuid())
-  fromId    String   @map("from_id")
-  toId      String   @map("to_id")
-  relation  LinkType
-  weight    Float    @default(1.0)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(cuid())
+  fromId     String   @map("from_id")
+  toId       String   @map("to_id")
+  relation   LinkType
+  weight     Float    @default(1.0)
+  confidence Float    @default(1.0)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   from Memory @relation("LinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
   to   Memory @relation("LinkTo",   fields: [toId],   references: [id], onDelete: Cascade)
@@ -85,8 +100,23 @@ enum LinkType {
   DEPENDS_ON
   EXAMPLE_OF
   RELATED
+  CAUSES
 
   @@map("link_type")
+}
+
+model MemoryAccessLog {
+  id         String   @id @default(cuid())
+  memoryId   String   @map("memory_id")
+  projectId  String   @map("project_id")
+  dayOfWeek  Int      @map("day_of_week")
+  hourOfDay  Int      @map("hour_of_day")
+  accessedAt DateTime @default(now()) @map("accessed_at")
+
+  memory  Memory  @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("memory_access_logs")
 }
 
 model ProjectConnection {

@@ -454,14 +454,16 @@ export function registerBrain2Tools(server: McpServer) {
         const pin = mem.isPinned ? "📌 " : "";
         text += `**${pin}[${mem.type}] ${mem.title}** imp:${mem.importance} \`…${mem.id.slice(-6)}\`\n`;
         for (const link of outgoing) {
-          const arrow = {
+          const arrowMap: Record<string, string> = {
             EXTENDS:    "──extends──▶",
             SUPERSEDES: "══super══▶",
             CONTRADICTS:"──✗──",
             DEPENDS_ON: "──needs──▶",
             EXAMPLE_OF: "──e.g.──▶",
             RELATED:    "──────▶",
-          }[link.relation] ?? "──▶";
+            CAUSES:     "──causes──▶",
+          };
+          const arrow = arrowMap[link.relation] ?? "──▶";
           text += `  ${arrow} [${link.to.type}] ${link.to.title}\n`;
         }
         text += "\n";

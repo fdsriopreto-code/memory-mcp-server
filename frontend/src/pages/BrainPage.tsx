@@ -23,9 +23,10 @@ type BrainStats = {
   withEmbedding: number;
   links: number;
   byType: { type: string; count: number }[];
-  topAccessed: { id: string; title: string; type: string; importance: number; accessCount: number }[];
-  pinnedMemories: { id: string; title: string; type: string; importance: number; content: string; linkCount: number }[];
-  brainMemories: { id: string; title: string; content: string; importance: number; createdAt: string }[];
+  epistemicDist?: { status: string; count: number }[];
+  topAccessed: { id: string; title: string; type: string; importance: number; accessCount: number; epistemicStatus?: string }[];
+  pinnedMemories: { id: string; title: string; type: string; importance: number; content: string; linkCount: number; epistemicStatus?: string }[];
+  brainMemories: { id: string; title: string; content: string; importance: number; createdAt: string; epistemicStatus?: string }[];
   recentLinks: RecentLink[];
 };
 
@@ -585,6 +586,38 @@ export default function BrainPage() {
             </Panel>
           )}
 
+          {/* Epistemic Distribution */}
+          {stats.epistemicDist && stats.epistemicDist.length > 0 && (
+            <Panel title="Status Epistêmico" sub="Distribuição de confiança nas memórias" accent="#10b981">
+              <div className="space-y-3">
+                {[
+                  { key: "HYPOTHESIS",  label: "Hipótese",   color: "#f59e0b", icon: "?" },
+                  { key: "VALIDATED",   label: "Validado",   color: "#10b981", icon: "✓" },
+                  { key: "CONTESTED",   label: "Contestado", color: "#ef4444", icon: "!" },
+                  { key: "DEPRECATED",  label: "Obsoleto",   color: "#6b7280", icon: "✕" },
+                ].map(({ key, label, color, icon }) => {
+                  const entry = stats.epistemicDist!.find(e => e.status === key);
+                  const count = entry?.count ?? 0;
+                  const pct = stats.total > 0 ? (count / stats.total) * 100 : 0;
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold w-4 text-center" style={{ color }}>{icon}</span>
+                          <span className="text-[11px] text-white/60">{label}</span>
+                        </div>
+                        <span className="text-[11px] font-mono text-white/40">{count}</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-white/[0.05]">
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Panel>
+          )}
+
           {/* Tools guide */}
           <Panel title="🛠️ Ferramentas MCP Disponíveis" sub="Use via Claude Code — todas requerem project_slug" accent="#3b82f6">
             <div className="grid grid-cols-2 gap-3">
@@ -601,6 +634,12 @@ export default function BrainPage() {
                 { name: "brain_pulse",         desc: "Status do algoritmo CRE: parâmetros λ/θ/σ/τ, ciclo atual, estado cognitivo", accent: "#8b5cf6", tag: "CRE" },
                 { name: "brain_dream",         desc: "Modo SONHO — conecta memórias dormentes com sinapses criativas inesperadas", accent: "#6366f1", tag: "CRE" },
                 { name: "brain_resonance_map", desc: "Mapa de ressonância cognitiva — memórias organizadas por temperatura e peso sináptico", accent: "#10b981", tag: "CRE" },
+                { name: "brain_epistemic",        desc: "Visualiza e promove status epistêmico: HYPOTHESIS→VALIDATED→CONTESTED→DEPRECATED", accent: "#10b981", tag: "EPISTÊMICO" },
+                { name: "brain_causal_discover",  desc: "Descobre relações CAUSES automaticamente analisando padrões de co-acesso nos logs", accent: "#f59e0b", tag: "CAUSAL" },
+                { name: "brain_predict_context",  desc: "Prediz quais memórias você precisará agora baseado em padrões horários/diários", accent: "#6366f1", tag: "PREDITIVO" },
+                { name: "brain_cross_transfer",   desc: "Busca conhecimento em outros projetos quando o atual não tem resposta suficiente", accent: "#3b82f6", tag: "TRANSFER" },
+                { name: "brain_infer",            desc: "Inferência zero-shot: atravessa o grafo de links para responder sem memória direta", accent: "#8b5cf6", tag: "INFERÊNCIA" },
+                { name: "brain_consensus",        desc: "Debate multi-agente: 2 GPTs debatem memórias conflitantes e um árbitro sintetiza", accent: "#ec4899", tag: "CONSENSO" },
               ].map(t => (
                 <div key={t.name} className="rounded-xl p-3.5 border border-white/[0.05]"
                   style={{ background: `${t.accent}08` }}>

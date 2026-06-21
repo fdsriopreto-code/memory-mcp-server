@@ -112,7 +112,7 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
   const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
   if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
 
-  const [total, pinned, byType, topAccessed, pinnedMemories, brainMemories, linksCount, recentLinks, embRow] = await Promise.all([
+  const [total, pinned, byType, topAccessed, pinnedMemories, brainMemories, linksCount, recentLinks, embRow, epistemicDist] = await Promise.all([
     prisma.memory.count({ where: { projectId: proj.id } }),
     prisma.memory.count({ where: { projectId: proj.id, isPinned: true } }),
     prisma.memory.groupBy({ by: ["type"], where: { projectId: proj.id }, _count: { id: true }, orderBy: { _count: { id: "desc" } } }),
@@ -120,7 +120,7 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
       where: { projectId: proj.id },
       orderBy: [{ accessCount: "desc" }],
       take: 7,
-      select: { id: true, title: true, type: true, importance: true, accessCount: true },
+      select: { id: true, title: true, type: true, importance: true, accessCount: true, epistemicStatus: true },
     }),
     prisma.memory.findMany({
       where: { projectId: proj.id, isPinned: true },
@@ -134,7 +134,7 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
       where: { projectId: proj.id, type: "BRAIN" },
       orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
       take: 5,
-      select: { id: true, title: true, content: true, importance: true, createdAt: true },
+      select: { id: true, title: true, content: true, importance: true, createdAt: true, epistemicStatus: true },
     }),
     prisma.memoryLink.count({ where: { from: { projectId: proj.id } } }),
     prisma.memoryLink.findMany({
@@ -146,6 +146,11 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
     prisma.$queryRaw<[{ count: bigint }]>`
       SELECT COUNT(*) AS count FROM memories WHERE project_id = ${proj.id} AND embedding IS NOT NULL
     `,
+    prisma.memory.groupBy({
+      by: ["epistemicStatus"],
+      where: { projectId: proj.id },
+      _count: { id: true },
+    }),
   ]);
 
   res.json({
@@ -154,10 +159,12 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
     withEmbedding: Number((embRow as any)[0]?.count ?? 0),
     links: linksCount,
     byType: byType.map(t => ({ type: t.type, count: t._count.id })),
+    epistemicDist: epistemicDist.map(e => ({ status: e.epistemicStatus, count: e._count.id })),
     topAccessed,
     pinnedMemories: pinnedMemories.map(m => ({
       id: m.id, title: m.title, type: m.type, importance: m.importance, content: m.content,
       linkCount: m.links.length + m.linkedBy.length,
+      epistemicStatus: m.epistemicStatus,
     })),
     brainMemories,
     recentLinks: recentLinks.map(l => ({

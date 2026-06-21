@@ -6,6 +6,7 @@ import { useWs } from "../contexts/WsContext";
 type Memory = {
   id: string; type: string; title: string; content: string;
   tags: string[]; importance: number; accessCount: number; createdAt: string;
+  epistemicStatus?: string;
 };
 type Project = { id: string; name: string; slug: string; color: string };
 type View = "card" | "list";
@@ -22,6 +23,13 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string; icon
   BRAIN:        { label: "Brain",        color: "#ec4899", bg: "rgba(236,72,153,0.1)",   icon: "◈" },
 };
 
+const EPISTEMIC_META: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  HYPOTHESIS:  { label: "Hipótese",   color: "#f59e0b", bg: "rgba(245,158,11,0.12)",  icon: "?" },
+  VALIDATED:   { label: "Validado",   color: "#10b981", bg: "rgba(16,185,129,0.12)",  icon: "✓" },
+  CONTESTED:   { label: "Contestado", color: "#ef4444", bg: "rgba(239,68,68,0.12)",   icon: "!" },
+  DEPRECATED:  { label: "Obsoleto",   color: "#6b7280", bg: "rgba(107,114,128,0.12)", icon: "✕" },
+};
+
 const EMPTY_FORM = { type: "NOTE" as typeof TYPES[number], title: "", content: "", tags: "", importance: 3 };
 
 function ImportancePips({ value }: { value: number }) {
@@ -31,6 +39,18 @@ function ImportancePips({ value }: { value: number }) {
         <span key={i} className="inline-block w-1.5 h-1.5 rounded-full transition-colors"
           style={{ background: i < value ? "#6366f1" : "var(--border-strong)" }} />
       ))}
+    </span>
+  );
+}
+
+function EpistemicBadge({ status }: { status?: string }) {
+  if (!status || status === "HYPOTHESIS") return null;
+  const m = EPISTEMIC_META[status];
+  if (!m) return null;
+  return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+      style={{ background: m.bg, color: m.color }}>
+      {m.icon} {m.label}
     </span>
   );
 }
@@ -66,6 +86,7 @@ function MemoryCard({ mem, onDelete, expanded, onToggle }: {
                 style={{ background: meta.bg, color: meta.color }}>
                 {meta.label}
               </span>
+              <EpistemicBadge status={mem.epistemicStatus} />
               <ImportancePips value={mem.importance} />
               {mem.accessCount > 0 && (
                 <span className="text-[10px]" style={{ color: "var(--text-3)" }}>
@@ -138,6 +159,7 @@ function MemoryRow({ mem, onDelete }: { mem: Memory; onDelete: (id: string) => v
           style={{ background: meta.bg, color: meta.color }}>
           {meta.label}
         </span>
+        <EpistemicBadge status={mem.epistemicStatus} />
         <p className="flex-1 text-sm font-medium truncate" style={{ color: "var(--text-1)" }}>{mem.title}</p>
         <ImportancePips value={mem.importance} />
         {mem.accessCount > 0 && (
@@ -176,8 +198,9 @@ export default function MemoriesPage() {
   const [loading,    setLoading]    = useState(false);
   const [showForm,   setShowForm]   = useState(false);
   const [expanded,   setExpanded]   = useState<string | null>(null);
-  const [search,     setSearch]     = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("");
+  const [search,         setSearch]         = useState("");
+  const [typeFilter,     setTypeFilter]     = useState<string>("");
+  const [epistemicFilter, setEpistemicFilter] = useState<string>("");
   const [view,       setView]       = useState<View>(() => (localStorage.getItem("memories-view") as View) ?? "card");
   const [form, setForm] = useState(EMPTY_FORM);
   const { subscribe } = useWs();
@@ -213,6 +236,7 @@ export default function MemoriesPage() {
   const visible = useMemo(() => {
     let m = memories;
     if (typeFilter) m = m.filter(x => x.type === typeFilter);
+    if (epistemicFilter) m = m.filter(x => (x.epistemicStatus ?? "HYPOTHESIS") === epistemicFilter);
     if (search) {
       const q = search.toLowerCase();
       m = m.filter(x =>
@@ -222,7 +246,7 @@ export default function MemoriesPage() {
       );
     }
     return m;
-  }, [memories, search, typeFilter]);
+  }, [memories, search, typeFilter, epistemicFilter]);
 
   const typeCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -268,7 +292,7 @@ export default function MemoriesPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Project selector */}
-          <select value={project} onChange={e => { setProject(e.target.value); setSearch(""); setTypeFilter(""); }}
+          <select value={project} onChange={e => { setProject(e.target.value); setSearch(""); setTypeFilter(""); setEpistemicFilter(""); }}
             className="px-3 py-2 rounded-xl text-sm outline-none"
             style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-1)" }}>
             <option value="">Selecionar projeto…</option>
@@ -401,6 +425,26 @@ export default function MemoriesPage() {
               );
             })}
           </div>
+
+          {/* Epistemic filter tabs */}
+          <div className="flex gap-1.5 flex-wrap">
+            <button onClick={() => setEpistemicFilter("")}
+              className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+              style={!epistemicFilter
+                ? { background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent)44" }
+                : { background: "var(--bg-card)", color: "var(--text-3)", border: "1px solid var(--border)" }}>
+              Status: Todos
+            </button>
+            {Object.entries(EPISTEMIC_META).map(([key, m]) => (
+              <button key={key} onClick={() => setEpistemicFilter(epistemicFilter === key ? "" : key)}
+                className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5"
+                style={epistemicFilter === key
+                  ? { background: m.bg, color: m.color, border: `1px solid ${m.color}55` }
+                  : { background: "var(--bg-card)", color: "var(--text-3)", border: "1px solid var(--border)" }}>
+                {m.icon} {m.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -444,7 +488,7 @@ export default function MemoriesPage() {
       {!loading && project && visible.length === 0 && memories.length > 0 && (
         <div className="text-center py-12">
           <p className="text-sm" style={{ color: "var(--text-3)" }}>Nenhuma memória para o filtro atual.</p>
-          <button onClick={() => { setSearch(""); setTypeFilter(""); }}
+          <button onClick={() => { setSearch(""); setTypeFilter(""); setEpistemicFilter(""); }}
             className="mt-2 text-xs font-medium" style={{ color: "var(--accent)" }}>
             Limpar filtros
           </button>

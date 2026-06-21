@@ -9,6 +9,7 @@ import { registerAuditTools } from "./tools/audit.tools.js";
 import { registerBrainTools } from "./tools/brain.tools.js";
 import { registerBrain2Tools } from "./tools/brain2.tools.js";
 import { registerCreTools } from "./tools/brain_cre.tools.js";
+import { registerSurrealTools } from "./tools/brain_surreal.tools.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -24,6 +25,7 @@ export function createMcpServer(): McpServer {
   registerBrainTools(server);
   registerBrain2Tools(server);
   registerCreTools(server);
+  registerSurrealTools(server);
 
   return server;
 }
