@@ -36,13 +36,16 @@ model Memory {
   content     String
   tags        String[]
   importance  Int        @default(3)
+  isPinned    Boolean    @default(false) @map("is_pinned")
   embedding   Unsupported("vector(1536)")?
   accessCount Int        @default(0) @map("access_count")
   accessedAt  DateTime?  @map("accessed_at")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project  Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  links    MemoryLink[] @relation("LinkFrom")
+  linkedBy MemoryLink[] @relation("LinkTo")
 
   @@map("memories")
 }
@@ -54,8 +57,34 @@ enum MemoryType {
   NOTE
   BUG_FIX
   ARCHITECTURE
+  BRAIN
 
   @@map("memory_type")
+}
+
+model MemoryLink {
+  id        String   @id @default(cuid())
+  fromId    String   @map("from_id")
+  toId      String   @map("to_id")
+  relation  LinkType
+  createdAt DateTime @default(now()) @map("created_at")
+
+  from Memory @relation("LinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   Memory @relation("LinkTo",   fields: [toId],   references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, relation])
+  @@map("memory_links")
+}
+
+enum LinkType {
+  EXTENDS
+  SUPERSEDES
+  CONTRADICTS
+  DEPENDS_ON
+  EXAMPLE_OF
+  RELATED
+
+  @@map("link_type")
 }
 
 model ProjectConnection {

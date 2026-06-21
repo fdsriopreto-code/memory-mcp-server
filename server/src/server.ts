@@ -6,6 +6,7 @@ import { registerDatabaseTools } from "./tools/database.tools.js";
 import { registerTaskTools } from "./tools/task.tools.js";
 import { registerServerLogsTools } from "./tools/serverLogs.tools.js";
 import { registerAuditTools } from "./tools/audit.tools.js";
+import { registerBrainTools } from "./tools/brain.tools.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -18,6 +19,7 @@ export function createMcpServer(): McpServer {
   registerTaskTools(server);
   registerServerLogsTools(server);
   registerAuditTools(server);
+  registerBrainTools(server);
 
   return server;
 }

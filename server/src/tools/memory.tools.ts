@@ -26,7 +26,7 @@ export function registerMemoryTools(server: McpServer) {
       project: z.string().describe("Slug do projeto (ex: ile-manager, operax)"),
       query:   z.string().describe("Texto da busca — descreva o que quer encontrar"),
       limit:   z.number().min(1).max(20).default(5).describe("Número máximo de resultados"),
-      type:    z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"])
+      type:    z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE","BRAIN"])
                .optional().describe("Filtrar por tipo de memória"),
     },
     async ({ project, query, limit, type }) => {
@@ -97,7 +97,7 @@ export function registerMemoryTools(server: McpServer) {
     "Salva uma nova memória persistente no projeto",
     {
       project:    z.string().describe("Slug do projeto"),
-      type:       z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"]),
+      type:       z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE","BRAIN"]),
       title:      z.string().describe("Título curto e descritivo"),
       content:    z.string().describe("Conteúdo completo da memória"),
       tags:       z.array(z.string()).default([]).describe("Tags para categorização"),
@@ -176,12 +176,21 @@ export function registerMemoryTools(server: McpServer) {
       const proj = await prisma.project.findUnique({ where: { slug: project } });
       if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
 
-      const [memories, tasks] = await Promise.all([
+      const [pinnedMemories, topMemories, tasks] = await Promise.all([
+        // Memórias pinadas — sempre incluídas
         prisma.memory.findMany({
-          where: { projectId: proj.id },
+          where: { projectId: proj.id, isPinned: true },
+          orderBy: [{ importance: "desc" }],
+          select: { id: true, type: true, title: true, content: true, tags: true, importance: true, isPinned: true,
+            _count: { select: { links: true, linkedBy: true } } },
+        }),
+        // Top memórias por importância/acesso (excluindo já pinadas)
+        prisma.memory.findMany({
+          where: { projectId: proj.id, isPinned: false },
           orderBy: [{ importance: "desc" }, { accessCount: "desc" }],
-          take: 10,
-          select: { id: true, type: true, title: true, content: true, tags: true, importance: true },
+          take: 8,
+          select: { id: true, type: true, title: true, content: true, tags: true, importance: true, isPinned: true,
+            _count: { select: { links: true, linkedBy: true } } },
         }),
         prisma.task.findMany({
           where: { projectId: proj.id, status: { in: ["OPEN", "IN_PROGRESS"] } },
@@ -190,9 +199,25 @@ export function registerMemoryTools(server: McpServer) {
         }),
       ]);
 
-      const memoriesText = memories.map(m =>
-        `### [${m.type}] ${m.title} (importância: ${m.importance}/5)\n${m.content}`
-      ).join("\n\n---\n\n");
+      const renderMemory = (m: typeof pinnedMemories[0], pinBadge = false) => {
+        const linkCount = m._count.links + m._count.linkedBy;
+        const badge = pinBadge ? "📌 " : "";
+        const links = linkCount > 0 ? ` 🔗${linkCount}` : "";
+        return `### ${badge}[${m.type}] ${m.title} (imp: ${m.importance}/5${links})\n${m.content}`;
+      };
+
+      let memoriesText = "";
+      if (pinnedMemories.length > 0) {
+        memoriesText += `## 📌 Memórias pinadas (${pinnedMemories.length})\n\n`;
+        memoriesText += pinnedMemories.map(m => renderMemory(m, true)).join("\n\n---\n\n");
+        memoriesText += "\n\n";
+      }
+      if (topMemories.length > 0) {
+        memoriesText += `## Memórias principais (${topMemories.length})\n\n`;
+        memoriesText += topMemories.map(m => renderMemory(m)).join("\n\n---\n\n");
+      }
+
+      const totalMemories = pinnedMemories.length + topMemories.length;
 
       const tasksText = tasks.length === 0
         ? "Nenhuma task aberta."
@@ -201,10 +226,10 @@ export function registerMemoryTools(server: McpServer) {
       const text =
         `# Contexto: ${proj.name}\n\n` +
         `${proj.description ?? ""}\n\n` +
-        `## Memórias principais (${memories.length})\n\n${memoriesText}\n\n` +
+        memoriesText + "\n" +
         `## Tasks abertas\n\n${tasksText}`;
 
-      await logAudit(proj.id, "project_context", { project }, `${memories.length} memórias, ${tasks.length} tasks`);
+      await logAudit(proj.id, "project_context", { project }, `${totalMemories} memórias (${pinnedMemories.length} pinadas), ${tasks.length} tasks`);
       return { content: [{ type: "text" as const, text }] };
     }
   );
@@ -215,7 +240,7 @@ export function registerMemoryTools(server: McpServer) {
     "Lista memórias de um projeto com filtros opcionais",
     {
       project: z.string(),
-      type:    z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"]).optional(),
+      type:    z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE","BRAIN"]).optional(),
       tag:     z.string().optional().describe("Filtrar por tag"),
       limit:   z.number().default(20),
     },
@@ -282,7 +307,7 @@ export function registerMemoryTools(server: McpServer) {
     {
       project:  z.string().describe("Slug do projeto"),
       memories: z.array(z.object({
-        type:       z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE"]),
+        type:       z.enum(["DECISION","CONTEXT","PATTERN","NOTE","BUG_FIX","ARCHITECTURE","BRAIN"]),
         title:      z.string(),
         content:    z.string(),
         tags:       z.array(z.string()).default([]),
