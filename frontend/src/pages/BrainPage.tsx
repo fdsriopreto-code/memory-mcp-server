@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import { toast } from "sonner";
+
+type MemoryMini = { id: string; title: string; type: string };
+
+type RecentLink = {
+  id: string;
+  fromId: string;
+  toId: string;
+  fromTitle: string;
+  fromType: string;
+  toTitle: string;
+  toType: string;
+  relation: string;
+  weight: number;
+};
 
 type BrainStats = {
   total: number;
@@ -11,10 +26,13 @@ type BrainStats = {
   topAccessed: { id: string; title: string; type: string; importance: number; accessCount: number }[];
   pinnedMemories: { id: string; title: string; type: string; importance: number; content: string; linkCount: number }[];
   brainMemories: { id: string; title: string; content: string; importance: number; createdAt: string }[];
-  recentLinks: { fromTitle: string; toTitle: string; relation: string }[];
+  recentLinks: RecentLink[];
 };
 
 type Project = { id: string; name: string; slug: string; color: string };
+
+const LINK_TYPES = ["EXTENDS", "SUPERSEDES", "CONTRADICTS", "DEPENDS_ON", "EXAMPLE_OF", "RELATED"] as const;
+type LinkType = typeof LINK_TYPES[number];
 
 const TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
   DECISION:     { bg: "rgba(99,102,241,0.12)",  text: "#818cf8", dot: "#6366f1" },
@@ -26,19 +44,19 @@ const TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
   BRAIN:        { bg: "rgba(236,72,153,0.12)",  text: "#f9a8d4", dot: "#ec4899" },
 };
 
-const RELATION_STYLE: Record<string, string> = {
-  EXTENDS:    "text-indigo-400",
-  SUPERSEDES: "text-purple-400",
-  CONTRADICTS:"text-red-400",
-  DEPENDS_ON: "text-blue-400",
-  EXAMPLE_OF: "text-emerald-400",
-  RELATED:    "text-gray-400",
+const RELATION_META: Record<string, { label: string; color: string; bg: string; desc: string; symbol: string }> = {
+  EXTENDS:     { label: "Estende",     color: "#818cf8", bg: "rgba(99,102,241,0.15)",  desc: "A aprofunda ou adiciona detalhes a B",     symbol: "→" },
+  SUPERSEDES:  { label: "Substitui",   color: "#c084fc", bg: "rgba(168,85,247,0.15)",  desc: "A substitui B — B está desatualizada",      symbol: "⇒" },
+  CONTRADICTS: { label: "Contradiz",   color: "#f87171", bg: "rgba(239,68,68,0.15)",   desc: "A conflita ou nega B",                      symbol: "⊗" },
+  DEPENDS_ON:  { label: "Depende de",  color: "#60a5fa", bg: "rgba(59,130,246,0.15)",  desc: "A só faz sentido quando B é conhecida",     symbol: "⟵" },
+  EXAMPLE_OF:  { label: "Exemplo de",  color: "#34d399", bg: "rgba(16,185,129,0.15)",  desc: "A é um caso concreto ou instância de B",    symbol: "∈" },
+  RELATED:     { label: "Relacionada", color: "#9ca3af", bg: "rgba(107,114,128,0.15)", desc: "A e B têm relação semântica geral",          symbol: "~" },
 };
 
-function TypeBadge({ type }: { type: string }) {
+function TypeBadge({ type, small = false }: { type: string; small?: boolean }) {
   const s = TYPE_COLORS[type] ?? { bg: "rgba(107,114,128,0.15)", text: "#9ca3af", dot: "#6b7280" };
   return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+    <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${small ? "px-1.5 py-0.5 text-[9px]" : "px-2 py-0.5 text-[10px]"}`}
       style={{ background: s.bg, color: s.text }}>
       <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.dot }} />
       {type.replace(/_/g, " ")}
@@ -56,18 +74,21 @@ function ImpStars({ value }: { value: number }) {
   );
 }
 
-function Panel({ title, sub, children, accent = "#6366f1" }: {
-  title: string; sub?: string; children: React.ReactNode; accent?: string;
+function Panel({ title, sub, children, accent = "#6366f1", action }: {
+  title: string; sub?: string; children: React.ReactNode; accent?: string; action?: React.ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-white/[0.06] overflow-hidden"
       style={{ background: "linear-gradient(135deg,#0d1117 0%,#0a0d18 100%)" }}>
-      <div className="px-5 pt-5 pb-4 border-b border-white/[0.05]">
-        <div className="flex items-center gap-2.5">
-          <div className="w-1 h-4 rounded-full" style={{ background: accent }} />
-          <p className="text-sm font-semibold text-white tracking-tight">{title}</p>
+      <div className="px-5 pt-5 pb-4 border-b border-white/[0.05] flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="w-1 h-4 rounded-full shrink-0" style={{ background: accent }} />
+            <p className="text-sm font-semibold text-white tracking-tight">{title}</p>
+          </div>
+          {sub && <p className="text-[11px] mt-1 ml-3.5" style={{ color: "rgba(255,255,255,0.28)" }}>{sub}</p>}
         </div>
-        {sub && <p className="text-[11px] mt-1 ml-3.5" style={{ color: "rgba(255,255,255,0.28)" }}>{sub}</p>}
+        {action}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -75,10 +96,17 @@ function Panel({ title, sub, children, accent = "#6366f1" }: {
 }
 
 export default function BrainPage() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [project,  setProject]  = useState<string>("");
   const [stats,    setStats]    = useState<BrainStats | null>(null);
   const [loading,  setLoading]  = useState(false);
+  const [memories, setMemories] = useState<MemoryMini[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [formFrom, setFormFrom] = useState("");
+  const [formTo,   setFormTo]   = useState("");
+  const [formRel,  setFormRel]  = useState<LinkType>("RELATED");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     api.get<Project[]>("/api/projects").then(p => {
@@ -90,13 +118,45 @@ export default function BrainPage() {
   const load = useCallback(() => {
     if (!project) return;
     setLoading(true);
-    api.get<BrainStats>(`/api/projects/${project}/brain-stats`)
-      .then(setStats)
+    Promise.all([
+      api.get<BrainStats>(`/api/projects/${project}/brain-stats`),
+      api.get<MemoryMini[]>(`/api/projects/${project}/memories`),
+    ])
+      .then(([s, m]) => { setStats(s); setMemories(m); })
       .catch(() => toast.error("Erro ao carregar brain stats"))
       .finally(() => setLoading(false));
   }, [project]);
 
   useEffect(() => { load(); }, [load]);
+
+  const createLink = async () => {
+    if (!formFrom || !formTo || formFrom === formTo) {
+      toast.error("Selecione duas memórias diferentes");
+      return;
+    }
+    setCreating(true);
+    try {
+      await api.post(`/api/projects/${project}/memories/link`, { fromId: formFrom, toId: formTo, relation: formRel });
+      toast.success("Sinapse criada!");
+      setShowForm(false);
+      setFormFrom(""); setFormTo(""); setFormRel("RELATED");
+      load();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao criar link");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const deleteLink = async (id: string) => {
+    try {
+      await api.delete(`/api/memories/links/${id}`);
+      toast.success("Sinapse removida");
+      load();
+    } catch {
+      toast.error("Erro ao remover sinapse");
+    }
+  };
 
   const healthScore = stats
     ? Math.round(
@@ -110,6 +170,16 @@ export default function BrainPage() {
 
   const healthColor = healthScore >= 80 ? "#10b981" : healthScore >= 50 ? "#f59e0b" : "#ef4444";
   const healthLabel = healthScore >= 80 ? "Excelente" : healthScore >= 50 ? "Bom" : "Precisa atenção";
+
+  const selStyle = {
+    background: "#080c1a",
+    borderColor: "rgba(255,255,255,0.08)",
+    color: "rgba(255,255,255,0.75)",
+  };
+
+  const fromMem = memories.find(m => m.id === formFrom);
+  const toMem   = memories.find(m => m.id === formTo);
+  const relMeta = RELATION_META[formRel];
 
   return (
     <div className="space-y-6">
@@ -128,17 +198,13 @@ export default function BrainPage() {
             <h1 className="text-2xl font-bold text-white tracking-tight">Brain</h1>
           </div>
           <p className="text-[12px] ml-11" style={{ color: "rgba(255,255,255,0.28)" }}>
-            Segundo cérebro da IA — grafo de conhecimento auto-evolutivo
+            Segundo cérebro da IA — grafo de conhecimento auto-evolutivo (CRE)
           </p>
         </div>
-
         <div className="flex items-center gap-3">
-          <select
-            value={project}
-            onChange={e => setProject(e.target.value)}
-            className="text-sm rounded-xl px-3 py-2 border outline-none transition-all"
-            style={{ background: "#0d1117", borderColor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}
-          >
+          <select value={project} onChange={e => setProject(e.target.value)}
+            className="text-sm rounded-xl px-3 py-2 border outline-none"
+            style={selStyle}>
             {projects.map(p => <option key={p.slug} value={p.slug}>{p.name}</option>)}
           </select>
           <button onClick={load}
@@ -157,8 +223,7 @@ export default function BrainPage() {
 
       {!loading && !stats && (
         <div className="text-center py-20 text-sm" style={{ color: "rgba(255,255,255,0.25)" }}>
-          Selecione um projeto para ver o estado do cérebro.<br/>
-          <span className="text-[11px]">A API /brain-stats precisa ser configurada no backend.</span>
+          Selecione um projeto para ver o estado do cérebro.
         </div>
       )}
 
@@ -170,7 +235,6 @@ export default function BrainPage() {
             <div className="absolute top-0 right-0 w-48 h-48 rounded-full blur-3xl opacity-[0.06]"
               style={{ background: healthColor }} />
             <div className="flex items-center gap-8">
-              {/* Score ring */}
               <div className="relative shrink-0 w-24 h-24">
                 <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
                   <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
@@ -185,7 +249,6 @@ export default function BrainPage() {
                   <span className="text-[9px] font-semibold" style={{ color: "rgba(255,255,255,0.4)" }}>/ 100</span>
                 </div>
               </div>
-
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-3">
                   <p className="text-lg font-bold text-white">Brain Health</p>
@@ -196,10 +259,10 @@ export default function BrainPage() {
                 </div>
                 <div className="grid grid-cols-4 gap-4">
                   {[
-                    { label: "Memórias",    value: stats.total,         icon: "🧠" },
-                    { label: "Pinadas",     value: stats.pinned,        icon: "📌" },
-                    { label: "Embeddings",  value: stats.withEmbedding, icon: "🔢" },
-                    { label: "Links",       value: stats.links,         icon: "🔗" },
+                    { label: "Memórias",   value: stats.total,         icon: "🧠" },
+                    { label: "Pinadas",    value: stats.pinned,        icon: "📌" },
+                    { label: "Embeddings", value: stats.withEmbedding, icon: "🔢" },
+                    { label: "Sinapses",   value: stats.links,         icon: "⚡" },
                   ].map(m => (
                     <div key={m.label}>
                       <p className="text-xl font-bold text-white tabular-nums">{m.value}</p>
@@ -211,11 +274,15 @@ export default function BrainPage() {
             </div>
           </div>
 
+          {/* 3-col grid */}
           <div className="grid grid-cols-3 gap-4">
 
             {/* Type distribution */}
             <Panel title="Distribuição por Tipo" sub="Cobertura do conhecimento" accent="#6366f1">
               <div className="space-y-3">
+                {stats.byType.length === 0 && (
+                  <p className="text-xs text-center py-4" style={{ color: "rgba(255,255,255,0.2)" }}>Nenhuma memória ainda</p>
+                )}
                 {stats.byType.map(t => {
                   const c = TYPE_COLORS[t.type]?.dot ?? "#6b7280";
                   const pct = stats.total > 0 ? (t.count / stats.total) * 100 : 0;
@@ -256,26 +323,222 @@ export default function BrainPage() {
               </div>
             </Panel>
 
-            {/* Knowledge graph links */}
-            <Panel title="Grafo de Conhecimento" sub="Links recentes entre memórias" accent="#8b5cf6">
-              <div className="space-y-3">
-                {stats.recentLinks.length === 0 && (
-                  <p className="text-xs text-center py-4" style={{ color: "rgba(255,255,255,0.2)" }}>
-                    Nenhum link ainda.<br/>Use brain_relate() para conectar memórias.
-                  </p>
-                )}
-                {stats.recentLinks.map((l, i) => (
-                  <div key={i} className="text-[11px]">
-                    <p className="text-white/70 truncate">{l.fromTitle}</p>
-                    <p className={`font-semibold ml-2 ${RELATION_STYLE[l.relation] ?? "text-gray-400"}`}>
-                      ↓ {l.relation.replace(/_/g, " ")}
-                    </p>
-                    <p className="text-white/50 truncate ml-4">{l.toTitle}</p>
-                  </div>
-                ))}
+            {/* Brain Graph shortcut */}
+            <Panel title="Brain Graph 3D" sub="Visualização força-dirigida do grafo" accent="#ec4899">
+              <div className="space-y-4">
+                {/* Mini node preview */}
+                <div className="relative h-32 rounded-xl overflow-hidden"
+                  style={{ background: "radial-gradient(ellipse at center, rgba(236,72,153,0.08) 0%, transparent 70%)" }}>
+                  <svg width="100%" height="100%" viewBox="0 0 200 120">
+                    {stats.recentLinks.slice(0, 4).map((_, i) => {
+                      const x1 = 30 + (i % 2) * 140, y1 = 30 + Math.floor(i / 2) * 60;
+                      const x2 = 100, y2 = 60;
+                      return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+                        stroke="rgba(139,92,246,0.3)" strokeWidth="1" strokeDasharray="3,3" />;
+                    })}
+                    {[
+                      { x: 30,  y: 30,  r: 8,  c: "#6366f1" },
+                      { x: 170, y: 30,  r: 6,  c: "#10b981" },
+                      { x: 100, y: 60,  r: 12, c: "#ec4899" },
+                      { x: 30,  y: 90,  r: 5,  c: "#f59e0b" },
+                      { x: 170, y: 90,  r: 7,  c: "#8b5cf6" },
+                    ].map((n, i) => (
+                      <g key={i}>
+                        <circle cx={n.x} cy={n.y} r={n.r + 4} fill={`${n.c}15`} />
+                        <circle cx={n.x} cy={n.y} r={n.r} fill={`${n.c}40`} stroke={n.c} strokeWidth="1.5" />
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+                <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  {stats.links} sinapses entre {stats.total} memórias renderizadas em tempo real com física força-dirigida e partículas.
+                </p>
+                <button
+                  onClick={() => navigate("/brain-graph")}
+                  className="w-full py-2.5 rounded-xl text-[12px] font-semibold transition-all"
+                  style={{ background: "linear-gradient(135deg,rgba(236,72,153,0.2),rgba(139,92,246,0.2))",
+                    color: "#f9a8d4", border: "1px solid rgba(236,72,153,0.2)" }}>
+                  Abrir Brain Graph →
+                </button>
               </div>
             </Panel>
           </div>
+
+          {/* Knowledge Graph — full width */}
+          <Panel
+            title="Grafo de Conhecimento"
+            sub={`${stats.links} sinapse${stats.links !== 1 ? "s" : ""} · ${memories.length} memórias disponíveis`}
+            accent="#8b5cf6"
+            action={
+              <button onClick={() => setShowForm(v => !v)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all"
+                style={{ background: showForm ? "rgba(139,92,246,0.25)" : "rgba(139,92,246,0.1)",
+                  color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.2)" }}>
+                {showForm ? "✕ Fechar" : "⚡ Nova Sinapse"}
+              </button>
+            }
+          >
+
+            {/* Add link form */}
+            {showForm && (
+              <div className="mb-6 rounded-xl border p-4"
+                style={{ background: "rgba(139,92,246,0.04)", borderColor: "rgba(139,92,246,0.15)" }}>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-4"
+                  style={{ color: "rgba(139,92,246,0.7)" }}>Criar Nova Conexão Sináptica</p>
+
+                <div className="grid grid-cols-3 gap-3 items-end">
+                  <div>
+                    <label className="text-[10px] block mb-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>De (origem)</label>
+                    <select value={formFrom} onChange={e => setFormFrom(e.target.value)}
+                      className="w-full text-xs rounded-lg px-2.5 py-2 border outline-none"
+                      style={selStyle}>
+                      <option value="">Selecionar memória...</option>
+                      {memories.map(m => (
+                        <option key={m.id} value={m.id}>[{m.type.slice(0,3)}] {m.title.slice(0, 45)}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] block mb-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>Tipo de relação</label>
+                    <select value={formRel} onChange={e => setFormRel(e.target.value as LinkType)}
+                      className="w-full text-xs rounded-lg px-2.5 py-2 border outline-none font-semibold"
+                      style={{ ...selStyle, color: RELATION_META[formRel]?.color }}>
+                      {LINK_TYPES.map(t => (
+                        <option key={t} value={t}>{RELATION_META[t].symbol} {RELATION_META[t].label}</option>
+                      ))}
+                    </select>
+                    <p className="text-[9px] mt-1" style={{ color: "rgba(255,255,255,0.25)" }}>
+                      {relMeta?.desc}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] block mb-1.5" style={{ color: "rgba(255,255,255,0.35)" }}>Para (destino)</label>
+                    <select value={formTo} onChange={e => setFormTo(e.target.value)}
+                      className="w-full text-xs rounded-lg px-2.5 py-2 border outline-none"
+                      style={selStyle}>
+                      <option value="">Selecionar memória...</option>
+                      {memories.filter(m => m.id !== formFrom).map(m => (
+                        <option key={m.id} value={m.id}>[{m.type.slice(0,3)}] {m.title.slice(0, 45)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Preview */}
+                {fromMem && toMem && (
+                  <div className="flex items-center gap-2 mt-4 p-3 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                    <TypeBadge type={fromMem.type} small />
+                    <span className="text-[11px] text-white/60 truncate max-w-[140px]">{fromMem.title}</span>
+                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold"
+                      style={{ background: relMeta?.bg, color: relMeta?.color }}>
+                      {relMeta?.symbol} {relMeta?.label}
+                    </span>
+                    <span className="text-[11px] text-white/60 truncate max-w-[140px]">{toMem.title}</span>
+                    <TypeBadge type={toMem.type} small />
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 mt-3">
+                  <button onClick={createLink} disabled={creating || !formFrom || !formTo}
+                    className="px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+                    style={{
+                      background: (!formFrom || !formTo) ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.3)",
+                      color: "#c4b5fd", opacity: (!formFrom || !formTo) ? 0.5 : 1,
+                      cursor: (!formFrom || !formTo) ? "not-allowed" : "pointer",
+                    }}>
+                    {creating ? "⏳ Criando..." : "⚡ Criar Sinapse"}
+                  </button>
+                  <button onClick={() => { setShowForm(false); setFormFrom(""); setFormTo(""); setFormRel("RELATED"); }}
+                    className="px-4 py-2 rounded-lg text-xs"
+                    style={{ color: "rgba(255,255,255,0.3)" }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {stats.recentLinks.length === 0 && (
+              <div className="py-10 flex flex-col items-center gap-5">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(139,92,246,0.08)", border: "1px dashed rgba(139,92,246,0.25)" }}>
+                  <span className="text-2xl">🕸️</span>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-white/50 mb-1">Nenhuma sinapse ainda</p>
+                  <p className="text-xs max-w-sm" style={{ color: "rgba(255,255,255,0.25)" }}>
+                    Crie conexões entre memórias usando o botão acima ou via MCP com <code className="font-mono text-purple-400">brain_relate()</code>.
+                    O algoritmo CRE também cria sinapses automaticamente ao rodar <code className="font-mono text-pink-400">brain_synthesize()</code>.
+                  </p>
+                </div>
+
+                {/* Relation types guide */}
+                <div className="grid grid-cols-3 gap-2 w-full max-w-lg mt-2">
+                  {Object.entries(RELATION_META).map(([key, m]) => (
+                    <div key={key} className="rounded-lg p-2.5 border"
+                      style={{ background: `${m.bg}`, borderColor: `${m.color}25` }}>
+                      <span className="text-sm font-bold" style={{ color: m.color }}>{m.symbol}</span>
+                      <p className="text-[10px] font-semibold mt-0.5" style={{ color: m.color }}>{m.label}</p>
+                      <p className="text-[9px] mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>{m.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Links list */}
+            {stats.recentLinks.length > 0 && (
+              <div className="space-y-2">
+                {stats.recentLinks.map(l => {
+                  const rel = RELATION_META[l.relation] ?? { label: l.relation, color: "#9ca3af", bg: "rgba(107,114,128,0.1)", symbol: "~", desc: "" };
+                  const wPct = Math.round(l.weight * 100);
+                  return (
+                    <div key={l.id}
+                      className="flex items-center gap-3 rounded-xl p-3 border border-white/[0.04] group transition-all"
+                      style={{ background: "rgba(255,255,255,0.02)" }}>
+
+                      {/* From */}
+                      <div className="flex-1 min-w-0">
+                        <TypeBadge type={l.fromType} small />
+                        <p className="text-[11px] text-white/70 truncate mt-0.5 leading-tight">{l.fromTitle}</p>
+                      </div>
+
+                      {/* Relation + weight */}
+                      <div className="shrink-0 flex flex-col items-center gap-1 px-2">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{ background: rel.bg, color: rel.color }}>
+                          {rel.symbol} {rel.label}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <div className="w-16 h-1 rounded-full bg-white/[0.06]">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${wPct}%`, background: rel.color, opacity: 0.7 }} />
+                          </div>
+                          <span className="text-[9px] font-mono" style={{ color: "rgba(255,255,255,0.2)" }}>{l.weight.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      {/* To */}
+                      <div className="flex-1 min-w-0 text-right">
+                        <div className="flex justify-end"><TypeBadge type={l.toType} small /></div>
+                        <p className="text-[11px] text-white/70 truncate mt-0.5 leading-tight">{l.toTitle}</p>
+                      </div>
+
+                      {/* Delete */}
+                      <button onClick={() => deleteLink(l.id)}
+                        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-lg flex items-center justify-center"
+                        style={{ background: "rgba(239,68,68,0.15)", color: "#f87171" }}
+                        title="Remover sinapse">
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
 
           {/* Pinned memories */}
           {stats.pinnedMemories.length > 0 && (
@@ -293,7 +556,7 @@ export default function BrainPage() {
                       {m.content.slice(0, 120)}{m.content.length > 120 ? "…" : ""}
                     </p>
                     {m.linkCount > 0 && (
-                      <p className="text-[10px] mt-2" style={{ color: "rgba(255,255,255,0.25)" }}>🔗 {m.linkCount} links</p>
+                      <p className="text-[10px] mt-2" style={{ color: "rgba(255,255,255,0.25)" }}>⚡ {m.linkCount} sinapses</p>
                     )}
                   </div>
                 ))}
@@ -303,7 +566,7 @@ export default function BrainPage() {
 
           {/* Brain memories (meta-knowledge) */}
           {stats.brainMemories.length > 0 && (
-            <Panel title="🧠 Meta-Conhecimento (BRAIN)" sub="Notas sobre como trabalhar com este projeto" accent="#ec4899">
+            <Panel title="🧠 Meta-Conhecimento (BRAIN)" sub="Cristais e notas do algoritmo CRE" accent="#ec4899">
               <div className="space-y-4">
                 {stats.brainMemories.map(m => (
                   <div key={m.id} className="rounded-xl p-4 border border-white/[0.05]"
@@ -323,24 +586,49 @@ export default function BrainPage() {
           )}
 
           {/* Tools guide */}
-          <Panel title="🛠️ Ferramentas Disponíveis" sub="Use via Claude Code / MCP" accent="#3b82f6">
+          <Panel title="🛠️ Ferramentas MCP Disponíveis" sub="Use via Claude Code — todas requerem project_slug" accent="#3b82f6">
             <div className="grid grid-cols-2 gap-3">
               {[
-                { name: "brain_session_start", desc: "Kickoff de sessão com contexto otimizado + pinadas + foco semântico", accent: "#6366f1" },
-                { name: "brain_learn",         desc: "Digere resumo de sessão com IA e extrai memórias estruturadas automaticamente", accent: "#10b981" },
-                { name: "brain_query",         desc: "Busca semântica + traversal do grafo (1-2 saltos) + pinadas", accent: "#3b82f6" },
-                { name: "brain_reflect",       desc: "Analisa estado do cérebro — gaps, duplicatas, obsoletos e sugestões", accent: "#f59e0b" },
-                { name: "brain_evolve",        desc: "Auto-melhoria: eleva memórias muito acessadas, rebaixa obsoletas", accent: "#8b5cf6" },
-                { name: "brain_relate",        desc: "Cria links tipados entre memórias (EXTENDS, SUPERSEDES, CONTRADICTS…)", accent: "#ec4899" },
-                { name: "brain_consolidate",   desc: "Usa IA para mesclar memórias fragmentadas em uma única completa", accent: "#ef4444" },
-                { name: "brain_knowledge_map", desc: "Mapa textual do grafo de conhecimento por tipo e relação", accent: "#f97316" },
+                { name: "brain_session_start", desc: "Kickoff de sessão com contexto otimizado + pinadas + foco semântico", accent: "#6366f1", tag: "SESSÃO" },
+                { name: "brain_learn",         desc: "Digere resumo de sessão com IA e extrai memórias estruturadas automaticamente", accent: "#10b981", tag: "IA" },
+                { name: "brain_query",         desc: "Busca semântica + traversal do grafo (1-2 saltos) + pinadas", accent: "#3b82f6", tag: "BUSCA" },
+                { name: "brain_reflect",       desc: "Analisa estado do cérebro — gaps, duplicatas, obsoletos e sugestões", accent: "#f59e0b", tag: "ANALISE" },
+                { name: "brain_evolve",        desc: "Auto-melhoria: eleva memórias muito acessadas, rebaixa obsoletas", accent: "#8b5cf6", tag: "EVOLUÇÃO" },
+                { name: "brain_relate",        desc: "Cria links tipados: brain_relate(fromId, toId, 'EXTENDS'|'DEPENDS_ON'|…)", accent: "#ec4899", tag: "GRAFO" },
+                { name: "brain_consolidate",   desc: "Usa IA para mesclar memórias fragmentadas em uma única completa", accent: "#ef4444", tag: "IA" },
+                { name: "brain_knowledge_map", desc: "Mapa textual do grafo de conhecimento por tipo e relação", accent: "#f97316", tag: "GRAFO" },
+                { name: "brain_synthesize",    desc: "Roda ciclo CRE completo: OBSERVE → ASSOCIATE → CRYSTALLIZE → PRUNE → EVOLVE", accent: "#ec4899", tag: "CRE" },
+                { name: "brain_pulse",         desc: "Status do algoritmo CRE: parâmetros λ/θ/σ/τ, ciclo atual, estado cognitivo", accent: "#8b5cf6", tag: "CRE" },
+                { name: "brain_dream",         desc: "Modo SONHO — conecta memórias dormentes com sinapses criativas inesperadas", accent: "#6366f1", tag: "CRE" },
+                { name: "brain_resonance_map", desc: "Mapa de ressonância cognitiva — memórias organizadas por temperatura e peso sináptico", accent: "#10b981", tag: "CRE" },
               ].map(t => (
                 <div key={t.name} className="rounded-xl p-3.5 border border-white/[0.05]"
                   style={{ background: `${t.accent}08` }}>
-                  <p className="text-[11px] font-bold font-mono mb-1" style={{ color: t.accent }}>{t.name}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-[11px] font-bold font-mono" style={{ color: t.accent }}>{t.name}</p>
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold"
+                      style={{ background: `${t.accent}20`, color: t.accent }}>
+                      {t.tag}
+                    </span>
+                  </div>
                   <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.4)" }}>{t.desc}</p>
                 </div>
               ))}
+            </div>
+
+            {/* CRE explanation */}
+            <div className="mt-4 rounded-xl p-4 border"
+              style={{ background: "rgba(236,72,153,0.03)", borderColor: "rgba(236,72,153,0.12)" }}>
+              <p className="text-[11px] font-bold mb-2" style={{ color: "#f9a8d4" }}>
+                ⟡ CRE — Cognitive Resonance Evolution
+              </p>
+              <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.35)" }}>
+                Algoritmo auto-evolutivo de 5 fases: <strong className="text-white/60">OBSERVE</strong> calcula ressonância de cada memória ·{" "}
+                <strong className="text-white/60">ASSOCIATE</strong> fortalece sinapses Hebbians (w = w×0.88 + coRes×0.12) ·{" "}
+                <strong className="text-white/60">CRYSTALLIZE</strong> gera cristais de conhecimento via GPT-4o-mini de clusters quentes ·{" "}
+                <strong className="text-white/60">PRUNE</strong> remove sinapses fracas (w &lt; τ) ·{" "}
+                <strong className="text-white/60">EVOLVE</strong> auto-ajusta os parâmetros λ/θ/σ/τ baseado no estado cognitivo observado.
+              </p>
             </div>
           </Panel>
         </>

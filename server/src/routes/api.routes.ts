@@ -139,9 +139,9 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
     prisma.memoryLink.count({ where: { from: { projectId: proj.id } } }),
     prisma.memoryLink.findMany({
       where: { from: { projectId: proj.id } },
-      include: { from: { select: { title: true } }, to: { select: { title: true } } },
+      include: { from: { select: { title: true, type: true } }, to: { select: { title: true, type: true } } },
       orderBy: { createdAt: "desc" },
-      take: 8,
+      take: 50,
     }),
     prisma.$queryRaw<[{ count: bigint }]>`
       SELECT COUNT(*) AS count FROM memories WHERE project_id = ${proj.id} AND embedding IS NOT NULL
@@ -160,8 +160,58 @@ apiRoutes.get("/projects/:slug/brain-stats", async (req, res) => {
       linkCount: m.links.length + m.linkedBy.length,
     })),
     brainMemories,
-    recentLinks: recentLinks.map(l => ({ fromTitle: l.from.title, toTitle: l.to.title, relation: l.relation })),
+    recentLinks: recentLinks.map(l => ({
+      id: l.id,
+      fromId: l.fromId,
+      toId: l.toId,
+      fromTitle: l.from.title,
+      fromType: l.from.type,
+      toTitle: l.to.title,
+      toType: l.to.type,
+      relation: l.relation,
+      weight: l.weight,
+    })),
   });
+});
+
+// ── Memory Links ─────────────────────────────────────────────────────────────
+apiRoutes.post("/projects/:slug/memories/link", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
+    const { fromId, toId, relation } = req.body as { fromId: string; toId: string; relation: string };
+    if (!fromId || !toId || !relation) {
+      res.status(400).json({ error: "fromId, toId e relation são obrigatórios" }); return;
+    }
+    if (fromId === toId) {
+      res.status(400).json({ error: "Uma memória não pode se conectar a si mesma" }); return;
+    }
+    const [from, to] = await Promise.all([
+      prisma.memory.findFirst({ where: { id: fromId, projectId: proj.id } }),
+      prisma.memory.findFirst({ where: { id: toId,   projectId: proj.id } }),
+    ]);
+    if (!from || !to) { res.status(404).json({ error: "Memória não encontrada neste projeto" }); return; }
+    const link = await prisma.memoryLink.upsert({
+      where: { fromId_toId_relation: { fromId, toId, relation: relation as never } },
+      create: { fromId, toId, relation: relation as never },
+      update: {},
+    });
+    broadcast("refresh", { resource: "memory_link" });
+    res.status(201).json(link);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
+  }
+});
+
+apiRoutes.delete("/memories/links/:id", async (req, res) => {
+  try {
+    await prisma.memoryLink.delete({ where: { id: req.params.id } });
+    broadcast("refresh", { resource: "memory_link" });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "Link não encontrado" });
+  }
 });
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
