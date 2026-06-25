@@ -250,7 +250,7 @@ Seja direto e específico. Máximo 15 itens no total.`;
         }),
         prisma.task.findMany({
           where: { projectId: proj.id },
-          select: { title: true, description: true, status: true, priority: true, tags: true, createdAt: true },
+          select: { title: true, description: true, status: true, priority: true, createdAt: true },
         }),
         (prisma as any).memoryAnchor.findMany({
           where: { projectId: proj.id, isActive: true },
