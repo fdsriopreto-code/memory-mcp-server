@@ -2,6 +2,7 @@
   "name": "memory-mcp-desktop",
   "version": "1.0.0",
   "description": "Memory MCP — Segundo cérebro persistente para o Claude",
+  "author": "Memory MCP Contributors",
   "main": "dist/main.js",
   "scripts": {
     "dev":        "tsc && electron .",
@@ -11,11 +12,10 @@
     "dist:linux": "electron-builder --linux",
     "dist:all":   "electron-builder --win --mac --linux"
   },
-  "dependencies": {
-    "electron": "^31.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node":      "^22.0.0",
+    "electron":         "^31.0.0",
     "electron-builder": "^24.13.3",
     "typescript":       "^5.5.0"
   },
