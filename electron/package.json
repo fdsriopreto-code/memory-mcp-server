@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Memory MCP — Segundo cérebro persistente para o Claude",
   "author": "Memory MCP Contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fdsriopreto-code/memory-mcp-server"
+  },
   "main": "dist/main.js",
   "scripts": {
     "dev":        "tsc && electron .",

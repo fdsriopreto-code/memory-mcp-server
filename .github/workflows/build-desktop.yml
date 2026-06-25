@@ -3,11 +3,51 @@ name: Build Desktop App
 on:
   push:
     tags:
-      - "v*"          # dispara em: git tag v1.0.0 && git push --tags
-  workflow_dispatch:  # ou manual pelo GitHub Actions UI
+      - "v*"
+  workflow_dispatch:
 
 jobs:
+  # ── Build server (shared across all platforms) ───────────────────────────
+  build-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Generate Prisma client (all platform binaries)
+        working-directory: server
+        run: npx prisma generate
+
+      - name: Build server TypeScript
+        working-directory: server
+        run: npm run build
+
+      - name: Prune dev dependencies
+        working-directory: server
+        run: npm prune --production
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-build
+          path: |
+            server/dist
+            server/node_modules
+            server/prisma/schema.prisma
+          retention-days: 1
+
+  # ── Windows ──────────────────────────────────────────────────────────────
   build-windows:
+    needs: build-server
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +58,13 @@ jobs:
           cache: "npm"
           cache-dependency-path: electron/package-lock.json
 
-      - name: Install dependencies
+      - name: Download server build
+        uses: actions/download-artifact@v4
+        with:
+          name: server-build
+          path: server
+
+      - name: Install Electron dependencies
         working-directory: electron
         run: npm install
 
@@ -38,7 +84,9 @@ jobs:
           name: memory-mcp-windows
           path: electron/release/*.exe
 
+  # ── macOS ────────────────────────────────────────────────────────────────
   build-mac:
+    needs: build-server
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +97,13 @@ jobs:
           cache: "npm"
           cache-dependency-path: electron/package-lock.json
 
-      - name: Install dependencies
+      - name: Download server build
+        uses: actions/download-artifact@v4
+        with:
+          name: server-build
+          path: server
+
+      - name: Install Electron dependencies
         working-directory: electron
         run: npm install
 
@@ -69,7 +123,9 @@ jobs:
           name: memory-mcp-mac
           path: electron/release/*.dmg
 
+  # ── Linux ────────────────────────────────────────────────────────────────
   build-linux:
+    needs: build-server
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +136,13 @@ jobs:
           cache: "npm"
           cache-dependency-path: electron/package-lock.json
 
-      - name: Install dependencies
+      - name: Download server build
+        uses: actions/download-artifact@v4
+        with:
+          name: server-build
+          path: server
+
+      - name: Install Electron dependencies
         working-directory: electron
         run: npm install
 
@@ -100,6 +162,7 @@ jobs:
           name: memory-mcp-linux
           path: electron/release/*.AppImage
 
+  # ── Release ──────────────────────────────────────────────────────────────
   release:
     needs: [build-windows, build-mac, build-linux]
     runs-on: ubuntu-latest
@@ -108,7 +171,7 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -116,23 +179,19 @@ jobs:
             memory-mcp-mac/*.dmg
             memory-mcp-linux/*.AppImage
           body: |
-            ## Memory MCP Desktop App
+            ## Memory MCP Desktop v${{ github.ref_name }}
 
             ### Download
-            - **Windows**: `Memory-MCP-Setup-*.exe`
-            - **macOS**: `Memory-MCP-*.dmg`
-            - **Linux**: `Memory-MCP-*.AppImage`
+            | Plataforma | Arquivo |
+            |---|---|
+            | **Windows** | `Memory-MCP-Setup-*.exe` |
+            | **macOS** | `Memory-MCP-*.dmg` |
+            | **Linux** | `Memory-MCP-*.AppImage` |
 
             ### Como usar
-            1. Baixe o instalador para o seu sistema
-            2. Instale normalmente
-            3. Na primeira execução, o app conecta automaticamente ao servidor
-            4. Para mudar o servidor: clique no ícone na bandeja → Configuracoes
-
-            ### Configuração (opcional)
-            O arquivo `config.json` fica em:
-            - Windows: `%APPDATA%\memory-mcp-desktop\config.json`
-            - macOS: `~/Library/Application Support/memory-mcp-desktop/config.json`
-            - Linux: `~/.config/memory-mcp-desktop/config.json`
+            1. Baixe o instalador para seu sistema
+            2. Instale e abra — o wizard de configuração aparece automaticamente
+            3. Escolha modo **Local** (PostgreSQL no Neon.tech grátis) ou **VPS** (servidor existente)
+            4. Pronto — fica no system tray, sempre disponível
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
