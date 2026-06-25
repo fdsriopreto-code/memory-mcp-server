@@ -1,8 +1,6 @@
 #!/bin/bash
 set -e
 
-mkdir -p /data/logs
-
 echo "🚀 Memory MCP — iniciando container all-in-one"
 
 # ── 1. Valida variáveis obrigatórias ─────────────────────────────────────────
@@ -23,8 +21,24 @@ if [ -n "$MISSING" ]; then
   exit 1
 fi
 
-# ── 2. Gera ou carrega segredos automáticos ───────────────────────────────────
-SECRETS_FILE="/data/.secrets"
+# ── 2. Garante diretórios com permissões corretas ─────────────────────────────
+# /data pode ser volume montado como root — criamos subpastas com chmod
+mkdir -p /tmp/pg-logs /tmp/redis-logs
+mkdir -p /data 2>/dev/null || true
+# Tenta criar /data com permissão permissiva (ignora erro se volume externo)
+chmod 777 /data 2>/dev/null || true
+
+# ── 3. Gera ou carrega segredos automáticos ───────────────────────────────────
+# Tenta /data primeiro, cai para /tmp se não tiver permissão
+if touch /data/.test 2>/dev/null; then
+  rm -f /data/.test
+  SECRETS_FILE="/data/.secrets"
+  KEY_FILE="/data/mcp-api-key.txt"
+else
+  echo "⚠ Volume /data sem permissão de escrita, usando /tmp (segredos não persistem entre restarts)"
+  SECRETS_FILE="/tmp/.secrets"
+  KEY_FILE="/tmp/mcp-api-key.txt"
+fi
 
 if [ ! -f "$SECRETS_FILE" ]; then
   echo "🔑 Gerando segredos pela primeira vez..."
@@ -39,94 +53,67 @@ JWT_SECRET=${JWT_SECRET}
 MCP_API_KEY=${MCP_API_KEY}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 EOF
-  chmod 600 "$SECRETS_FILE"
-
-  # Salva a MCP_API_KEY num arquivo visível
-  echo "MCP_API_KEY=${MCP_API_KEY}" > /data/mcp-api-key.txt
-  echo "✅ Segredos gerados e salvos em /data/.secrets"
+  chmod 600 "$SECRETS_FILE" 2>/dev/null || true
+  echo "MCP_API_KEY=${MCP_API_KEY}" > "$KEY_FILE"
+  echo "✅ Segredos gerados"
 else
   echo "🔑 Carregando segredos existentes..."
 fi
 
-source "$SECRETS_FILE"
+. "$SECRETS_FILE"   # source compatível com /bin/sh
 
-export DATABASE_URL="postgresql://mcp_user:${DB_PASSWORD}@localhost:5432/mcp_db"
-export REDIS_URL="redis://localhost:6379"
-export JWT_SECRET
-export MCP_API_KEY
-export ENCRYPTION_KEY
+export DATABASE_URL="postgresql://mcp_user:${DB_PASSWORD}@127.0.0.1:5432/mcp_db"
+export REDIS_URL="redis://127.0.0.1:6379"
+export JWT_SECRET MCP_API_KEY ENCRYPTION_KEY
 
-# Salva script de start do node com todas as variáveis já exportadas
-cat > /data/start-node.sh << NODEEOF
-#!/bin/bash
-export DATABASE_URL="${DATABASE_URL}"
-export REDIS_URL="${REDIS_URL}"
-export OPENAI_API_KEY="${OPENAI_API_KEY}"
-export JWT_SECRET="${JWT_SECRET}"
-export MCP_API_KEY="${MCP_API_KEY}"
-export ENCRYPTION_KEY="${ENCRYPTION_KEY}"
-export ADMIN_EMAIL="${ADMIN_EMAIL}"
-export ADMIN_PASSWORD="${ADMIN_PASSWORD}"
-export ADMIN_NAME="${ADMIN_NAME:-Administrador}"
-export PORT="${PORT:-3100}"
-export NODE_ENV="production"
-export SERVE_FRONTEND="true"
-export FRONTEND_DIST="/app/frontend/dist"
-cd /app
-node dist/index.js
-NODEEOF
-chmod +x /data/start-node.sh
+# ── 4. Inicializa PostgreSQL ──────────────────────────────────────────────────
+PG_DATA="/var/lib/postgresql/data"
+PG_BIN="/usr/lib/postgresql/16/bin"
 
-# ── 3. Inicializa PostgreSQL ──────────────────────────────────────────────────
-if [ ! -f "/var/lib/postgresql/data/PG_VERSION" ]; then
+# Garante que postgres é dono do diretório de dados
+chown -R postgres:postgres "$PG_DATA" 2>/dev/null || true
+
+if [ ! -f "$PG_DATA/PG_VERSION" ]; then
   echo "📦 Inicializando PostgreSQL pela primeira vez..."
-  chown -R postgres:postgres /var/lib/postgresql/data
-  su -c "/usr/lib/postgresql/16/bin/initdb -D /var/lib/postgresql/data --auth-local=trust --auth-host=md5" postgres
+  su -s /bin/bash postgres -c "$PG_BIN/initdb -D $PG_DATA --auth-local=trust --auth-host=trust -E UTF8 --no-locale"
 fi
 
-# Inicia Postgres e Redis via supervisord em background
-supervisorctl -c /dev/null > /dev/null 2>&1 || true
-echo "▶ Iniciando PostgreSQL e Redis..."
-/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -l /data/logs/postgres.log start -w -t 30 2>/dev/null \
-  || su -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -l /data/logs/postgres.log start -w -t 30" postgres
-
-# Aguarda Postgres aceitar conexões
-echo "⏳ Aguardando PostgreSQL..."
-for i in $(seq 1 20); do
-  if su -c "psql -U postgres -c '\q'" postgres 2>/dev/null; then
-    break
-  fi
-  sleep 2
-done
-
-# Cria usuário e banco se não existir
-su -c "psql -U postgres -tc \"SELECT 1 FROM pg_roles WHERE rolname='mcp_user'\" | grep -q 1 || \
-       psql -U postgres -c \"CREATE USER mcp_user WITH PASSWORD '${DB_PASSWORD}'\"" postgres 2>/dev/null || true
-su -c "psql -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname='mcp_db'\" | grep -q 1 || \
-       psql -U postgres -c \"CREATE DATABASE mcp_db OWNER mcp_user\"" postgres 2>/dev/null || true
-su -c "psql -U postgres -d mcp_db -c \"CREATE EXTENSION IF NOT EXISTS vector\"" postgres 2>/dev/null || true
-
+echo "▶ Iniciando PostgreSQL..."
+# Usa /tmp para o log do postgres (sem problema de permissão)
+su -s /bin/bash postgres -c "$PG_BIN/pg_ctl -D $PG_DATA -l /tmp/pg-logs/postgres.log start -w -t 60"
 echo "✅ PostgreSQL pronto"
 
-# ── 4. Inicia Redis ───────────────────────────────────────────────────────────
-redis-server /etc/redis/redis-standalone.conf --daemonize yes --logfile /data/logs/redis.log
+# Cria usuário/banco/extensão na primeira vez
+su -s /bin/bash postgres -c "psql -U postgres -tc \"SELECT 1 FROM pg_roles WHERE rolname='mcp_user'\" | grep -q 1 \
+  || psql -U postgres -c \"CREATE USER mcp_user WITH PASSWORD '${DB_PASSWORD}'\"" 2>/dev/null || true
+
+su -s /bin/bash postgres -c "psql -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname='mcp_db'\" | grep -q 1 \
+  || psql -U postgres -c \"CREATE DATABASE mcp_db OWNER mcp_user\"" 2>/dev/null || true
+
+su -s /bin/bash postgres -c "psql -U postgres -d mcp_db -c \"CREATE EXTENSION IF NOT EXISTS vector\"" 2>/dev/null || true
+
+# ── 5. Inicia Redis ───────────────────────────────────────────────────────────
+echo "▶ Iniciando Redis..."
+redis-server /etc/redis/redis-standalone.conf \
+  --daemonize yes \
+  --logfile /tmp/redis-logs/redis.log \
+  --pidfile /tmp/redis.pid
 echo "✅ Redis pronto"
 
-# ── 5. Roda migrations ───────────────────────────────────────────────────────
+# ── 6. Roda migrations ───────────────────────────────────────────────────────
 echo "📦 Aplicando migrations..."
 cd /app
-DATABASE_URL="$DATABASE_URL" npx prisma db push --accept-data-loss 2>&1 | tail -5
+npx prisma db push --accept-data-loss 2>&1 | grep -v "^$" | tail -10
 echo "✅ Migrations aplicadas"
 
-# ── 6. Inicia Node.js ────────────────────────────────────────────────────────
+# ── 7. Inicia Node.js ────────────────────────────────────────────────────────
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ Memory MCP iniciado!"
-echo "   Porta: ${PORT:-3100}"
-echo "   Admin: ${ADMIN_EMAIL}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Memory MCP iniciado com sucesso!"
+echo "   Porta:       ${PORT:-3100}"
+echo "   Admin:       ${ADMIN_EMAIL}"
 echo "   MCP API Key: ${MCP_API_KEY}"
-echo "   (chave salva em /data/mcp-api-key.txt)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-exec /data/start-node.sh
+exec node /app/dist/index.js
