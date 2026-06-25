@@ -10,7 +10,7 @@ const API_KEY    = process.env.MCP_API_KEY    ?? "";
 const AGENT_ID   = process.env.AGENT_ID       ?? hostname();
 const DEFAULT_CWD = process.env.DEFAULT_CWD   ?? homedir();
 
-const WS_URL = `${SERVER_URL}/ws/computer?apikey=${encodeURIComponent(API_KEY)}`;
+const WS_URL = `${SERVER_URL}/ws?apikey=${encodeURIComponent(API_KEY)}`;
 
 // Comandos bloqueados por segurança
 const BLOCKED = ["rm -rf /", "format c:", "del /f /s /q c:\\", "shutdown", "mkfs"];
