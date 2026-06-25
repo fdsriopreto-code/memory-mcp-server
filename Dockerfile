@@ -2,7 +2,7 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --prefer-offline
 COPY frontend/ ./
 RUN npm run build
 
@@ -18,7 +18,7 @@ RUN npm run build
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-alpine
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl curl
 WORKDIR /app
 
 COPY --from=server-builder /app/dist         ./dist
@@ -33,4 +33,11 @@ COPY --from=frontend-builder /frontend/dist  ./frontend/dist
 ENV SERVE_FRONTEND=true
 ENV FRONTEND_DIST=/app/frontend/dist
 
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node dist/index.js"]
+# Script de startup com retry no banco
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \
+  CMD curl -f http://localhost:${PORT:-3100}/health || exit 1
+
+CMD ["/docker-entrypoint.sh"]
