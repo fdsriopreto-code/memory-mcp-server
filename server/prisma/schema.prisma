@@ -44,6 +44,8 @@ model Memory {
   accessedAt      DateTime?       @map("accessed_at")
   epistemicStatus EpistemicStatus @default(HYPOTHESIS) @map("epistemic_status")
   driftScore      Float           @default(0.0)        @map("drift_score")
+  authorName      String?                              @map("author_name")
+  authorEmail     String?                              @map("author_email")
   validatedCount  Int             @default(0)          @map("validated_count")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")

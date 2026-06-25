@@ -12,6 +12,7 @@ import { requestCtx } from "./context.js";
 import { patchConsole } from "./logger.js";
 import { apiRateLimit } from "./middleware/rate-limit.middleware.js";
 import { initBrainWorker } from "./workers/brain.worker.js";
+import { initDecayScheduler } from "./workers/decay.scheduler.js";
 
 patchConsole();
 
@@ -96,6 +97,7 @@ async function start() {
     console.log(`[MCP] Endpoint: http://localhost:${env.PORT}/mcp`);
   });
   initBrainWorker();
+  initDecayScheduler();
 }
 
 start().catch((e) => { console.error(e); process.exit(1); });

@@ -5,6 +5,8 @@ import { encrypt, decrypt } from "../services/crypto.service.js";
 import { executeWrite } from "../services/connection.service.js";
 import { broadcast } from "../ws.js";
 import { getLogBuffer } from "../logger.js";
+import { readdirSync, statSync } from "fs";
+import { join, extname, relative } from "path";
 
 export const apiRoutes = Router();
 apiRoutes.use(jwtAuth);
@@ -832,4 +834,282 @@ apiRoutes.get("/audit-logs", async (req, res) => {
     take,
   });
   res.json(logs);
+});
+
+// ── Memory Atlas (2D Semantic Map) ───────────────────────────────────────────
+apiRoutes.get("/projects/:slug/atlas", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+    // Buscar memórias com embeddings (top 150 por importância)
+    const rows = await prisma.$queryRaw<{
+      id: string; title: string; type: string; importance: number;
+      tags: string[]; is_pinned: boolean; emb_text: string;
+    }[]>`
+      SELECT id, title, type::text, importance, tags, is_pinned,
+             embedding::text AS emb_text
+      FROM memories
+      WHERE project_id = ${proj.id} AND embedding IS NOT NULL
+      ORDER BY importance DESC, created_at DESC
+      LIMIT 150
+    `;
+
+    if (rows.length < 3) {
+      res.json({ nodes: [], message: "Memórias insuficientes para gerar o atlas (mínimo 3 com embeddings)." });
+      return;
+    }
+
+    // Parsear embeddings
+    const embeddings = rows.map(r => JSON.parse(r.emb_text) as number[]);
+    const n = embeddings.length;
+
+    // Projeção 2D: usa os dois eixos com maior variância (aprox PCA via power iteration)
+    // Abordagem rápida: projeção em 2 direções ortogonais fixas baseadas nos dados
+    const dim = embeddings[0].length;
+
+    // Vetor 1: diferença entre a memória mais importante e a menos importante
+    const v1 = new Array(dim).fill(0).map((_, d) => embeddings[0][d] - embeddings[n - 1][d]);
+    const norm1 = Math.sqrt(v1.reduce((s, x) => s + x * x, 0)) + 1e-10;
+    v1.forEach((_, i) => { v1[i] /= norm1; });
+
+    // Vetor 2: diferença entre memória do meio e a média dos extremos — ortogonalizar em relação a v1
+    const mid = Math.floor(n / 2);
+    const v2raw = new Array(dim).fill(0).map((_, d) => embeddings[mid][d] - (embeddings[0][d] + embeddings[n - 1][d]) / 2);
+    const dot12 = v2raw.reduce((s, x, i) => s + x * v1[i], 0);
+    const v2 = v2raw.map((x, i) => x - dot12 * v1[i]);
+    const norm2 = Math.sqrt(v2.reduce((s, x) => s + x * x, 0)) + 1e-10;
+    v2.forEach((_, i) => { v2[i] /= norm2; });
+
+    // Projetar todos os embeddings
+    const rawPositions = embeddings.map(emb => ({
+      x: emb.reduce((s, v, i) => s + v * v1[i], 0),
+      y: emb.reduce((s, v, i) => s + v * v2[i], 0),
+    }));
+
+    // Normalizar para [-1, 1]
+    const xs = rawPositions.map(p => p.x);
+    const ys = rawPositions.map(p => p.y);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xRange = xMax - xMin + 1e-10;
+    const yRange = yMax - yMin + 1e-10;
+
+    const nodes = rows.map((r, i) => ({
+      id: r.id,
+      title: r.title,
+      type: r.type,
+      importance: r.importance,
+      tags: r.tags,
+      isPinned: r.is_pinned,
+      x: (rawPositions[i].x - xMin) / xRange * 2 - 1,
+      y: (rawPositions[i].y - yMin) / yRange * 2 - 1,
+    }));
+
+    res.json({ nodes, total: n, project: { name: proj.name, color: proj.color } });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Brain Heatmap (GitHub-style activity calendar) ────────────────────────────
+apiRoutes.get("/projects/:slug/heatmap", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+    const weeks = Math.min(Math.max(1, Number(req.query.weeks) || 52), 104);
+    const since = new Date(Date.now() - weeks * 7 * 86_400_000);
+
+    const [created, accessed, modified] = await Promise.all([
+      prisma.$queryRaw<{ day: string; count: bigint }[]>`
+        SELECT TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS day, COUNT(*) AS count
+        FROM memories WHERE project_id = ${proj.id} AND created_at >= ${since}
+        GROUP BY day ORDER BY day
+      `,
+      prisma.$queryRaw<{ day: string; count: bigint }[]>`
+        SELECT TO_CHAR(DATE_TRUNC('day', accessed_at), 'YYYY-MM-DD') AS day, COUNT(*) AS count
+        FROM memory_access_logs WHERE project_id = ${proj.id} AND accessed_at >= ${since}
+        GROUP BY day ORDER BY day
+      `,
+      prisma.$queryRaw<{ day: string; count: bigint }[]>`
+        SELECT TO_CHAR(DATE_TRUNC('day', updated_at), 'YYYY-MM-DD') AS day, COUNT(*) AS count
+        FROM memories WHERE project_id = ${proj.id} AND updated_at >= ${since} AND updated_at != created_at
+        GROUP BY day ORDER BY day
+      `,
+    ]);
+
+    // Montar mapa de atividade por dia
+    const activityMap = new Map<string, { created: number; accessed: number; modified: number }>();
+    const addToMap = (rows: { day: string; count: bigint }[], field: "created" | "accessed" | "modified") => {
+      rows.forEach(r => {
+        if (!activityMap.has(r.day)) activityMap.set(r.day, { created: 0, accessed: 0, modified: 0 });
+        activityMap.get(r.day)![field] = Number(r.count);
+      });
+    };
+    addToMap(created, "created");
+    addToMap(accessed, "accessed");
+    addToMap(modified, "modified");
+
+    // Gerar todas as semanas (array de dias)
+    const allDays: { date: string; level: number; created: number; accessed: number; modified: number }[] = [];
+    const now = new Date();
+    for (let d = 0; d < weeks * 7; d++) {
+      const date = new Date(now.getTime() - (weeks * 7 - 1 - d) * 86_400_000);
+      const dateStr = date.toISOString().split("T")[0];
+      const act = activityMap.get(dateStr) ?? { created: 0, accessed: 0, modified: 0 };
+      const total = act.created * 3 + act.accessed + act.modified * 2;
+      const level = total === 0 ? 0 : total < 3 ? 1 : total < 8 ? 2 : total < 15 ? 3 : 4;
+      allDays.push({ date: dateStr, level, ...act });
+    }
+
+    const maxActivity = Math.max(...allDays.map(d => d.created * 3 + d.accessed + d.modified * 2), 1);
+
+    res.json({
+      days: allDays,
+      weeks,
+      maxActivity,
+      totals: {
+        created: created.reduce((s, r) => s + Number(r.count), 0),
+        accessed: accessed.reduce((s, r) => s + Number(r.count), 0),
+        modified: modified.reduce((s, r) => s + Number(r.count), 0),
+      },
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Knowledge Debt (cobertura de conhecimento por arquivo) ───────────────────
+apiRoutes.get("/projects/:slug/knowledge-debt", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+    const repoPath = req.query.repoPath as string;
+    if (!repoPath) { res.status(400).json({ error: "repoPath é obrigatório" }); return; }
+
+    // Listar arquivos de código recursivamente
+    const CODE_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".cs", ".rb"]);
+    const IGNORE_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "__pycache__", ".cache", "coverage"]);
+
+    function listFiles(dir: string, base = dir): string[] {
+      try {
+        return readdirSync(dir).flatMap(entry => {
+          if (IGNORE_DIRS.has(entry)) return [];
+          const full = join(dir, entry);
+          try {
+            if (statSync(full).isDirectory()) return listFiles(full, base);
+            if (CODE_EXTS.has(extname(entry))) return [relative(base, full).replace(/\\/g, "/")];
+          } catch {}
+          return [];
+        });
+      } catch { return []; }
+    }
+
+    const files = listFiles(repoPath).slice(0, 500);
+    if (files.length === 0) {
+      res.status(400).json({ error: `Nenhum arquivo de código encontrado em: ${repoPath}` });
+      return;
+    }
+
+    // Buscar todas as memórias do projeto
+    const memories = await prisma.memory.findMany({
+      where: { projectId: proj.id },
+      select: { id: true, title: true, content: true, tags: true, type: true },
+    });
+
+    const allText = memories.map(m =>
+      `${m.title} ${m.content} ${m.tags.join(" ")}`.toLowerCase()
+    ).join("\n");
+
+    // Verificar cobertura: arquivo é "coberto" se seu nome aparece em alguma memória
+    const covered: string[] = [];
+    const uncovered: string[] = [];
+
+    for (const file of files) {
+      const fileName = file.split("/").pop()!.replace(/\.(ts|tsx|js|jsx|py|go)$/, "").toLowerCase();
+      const moduleParts = file.toLowerCase().split("/").slice(-3);
+
+      const isCovered = moduleParts.some(part =>
+        part.length > 3 && allText.includes(part.replace(/\.(ts|tsx|js|jsx)$/, ""))
+      ) || allText.includes(fileName);
+
+      if (isCovered) covered.push(file);
+      else uncovered.push(file);
+    }
+
+    const coverage = Math.round((covered.length / files.length) * 100);
+
+    // Agrupar uncovered por diretório
+    const uncoveredByDir = uncovered.reduce((acc, f) => {
+      const dir = f.split("/").slice(0, -1).join("/") || ".";
+      if (!acc[dir]) acc[dir] = [];
+      acc[dir].push(f);
+      return acc;
+    }, {} as Record<string, string[]>);
+
+    res.json({
+      coverage,
+      totalFiles: files.length,
+      coveredFiles: covered.length,
+      uncoveredFiles: uncovered.length,
+      uncoveredByDir,
+      coveredSample: covered.slice(0, 30),
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Memory Conflicts (contradições e duplicatas) ──────────────────────────────
+apiRoutes.get("/projects/:slug/conflicts", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+    // Conflitos explícitos (links CONTRADICTS)
+    const explicitConflicts = await prisma.memoryLink.findMany({
+      where: { from: { projectId: proj.id }, relation: "CONTRADICTS" },
+      include: {
+        from: { select: { id: true, title: true, type: true, content: true, importance: true, createdAt: true } },
+        to:   { select: { id: true, title: true, type: true, content: true, importance: true, createdAt: true } },
+      },
+    });
+
+    // Duplicatas semânticas (cosine similarity > 0.92) via pgvector
+    const duplicates = await prisma.$queryRaw<{
+      id1: string; title1: string; type1: string;
+      id2: string; title2: string; type2: string;
+      similarity: number;
+    }[]>`
+      SELECT a.id AS id1, a.title AS title1, a.type::text AS type1,
+             b.id AS id2, b.title AS title2, b.type::text AS type2,
+             1 - (a.embedding <=> b.embedding) AS similarity
+      FROM memories a
+      JOIN memories b ON b.project_id = a.project_id AND b.id > a.id
+      WHERE a.project_id = ${proj.id}
+        AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL
+        AND 1 - (a.embedding <=> b.embedding) > 0.92
+      ORDER BY similarity DESC
+      LIMIT 20
+    `;
+
+    res.json({
+      explicit: explicitConflicts.map(l => ({
+        type: "CONTRADICTS",
+        from: l.from,
+        to: l.to,
+      })),
+      duplicates: duplicates.map(d => ({
+        type: "DUPLICATE",
+        similarity: d.similarity,
+        from: { id: d.id1, title: d.title1, type: d.type1 },
+        to:   { id: d.id2, title: d.title2, type: d.type2 },
+      })),
+      total: explicitConflicts.length + duplicates.length,
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
 });

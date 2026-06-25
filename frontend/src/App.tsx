@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+﻿import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { WsProvider } from "./contexts/WsContext";
@@ -22,6 +22,9 @@ import ChatPage from "./pages/ChatPage";
 import AnchorsPage from "./pages/AnchorsPage";
 import SessionMonitorPage from "./pages/SessionMonitorPage";
 import TimelinePage from "./pages/TimelinePage";
+import MemoryAtlasPage from "./pages/MemoryAtlasPage";
+import KnowledgeDebtPage from "./pages/KnowledgeDebtPage";
+import BrainHealthPage from "./pages/BrainHealthPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -56,6 +59,9 @@ export default function App() {
               <Route path="/anchors"         element={<AnchorsPage />} />
               <Route path="/session-monitor" element={<SessionMonitorPage />} />
               <Route path="/timeline"        element={<TimelinePage />} />
+              <Route path="/atlas"          element={<MemoryAtlasPage />} />
+              <Route path="/knowledge-debt" element={<KnowledgeDebtPage />} />
+              <Route path="/brain-health"   element={<BrainHealthPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -65,3 +71,4 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
