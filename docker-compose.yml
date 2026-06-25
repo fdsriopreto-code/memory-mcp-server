@@ -5,13 +5,17 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: mcp_user
-      POSTGRES_PASSWORD: mcp_password
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: mcp_db
     volumes:
       - mcp_postgres_data:/var/lib/postgresql/data
     networks:
       - mcp-network
-      - easypanel  # rede interna da VPS para acessar outros projetos
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp_user -d mcp_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mcp-redis:
     image: redis:7-alpine
@@ -20,31 +24,26 @@ services:
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
       - mcp-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   mcp-server:
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
     container_name: mcp-server
     restart: unless-stopped
     env_file: .env
     ports:
-      - "3100:3100"
+      - "${PORT:-3100}:${PORT:-3100}"
     depends_on:
-      - mcp-postgres
-      - mcp-redis
-    networks:
-      - mcp-network
-      - easypanel
-
-  mcp-frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: mcp-frontend
-    restart: unless-stopped
-    ports:
-      - "3101:80"
+      mcp-postgres:
+        condition: service_healthy
+      mcp-redis:
+        condition: service_healthy
     networks:
       - mcp-network
 
@@ -54,5 +53,3 @@ volumes:
 networks:
   mcp-network:
     driver: bridge
-  easypanel:
-    external: true  # rede Docker interna já existente na VPS

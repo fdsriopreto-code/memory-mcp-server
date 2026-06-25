@@ -107,32 +107,53 @@ But it goes way beyond memory. You can **control your computer from your phone**
 
 ## 🚀 Quick Start
 
-### Option 1 — Docker (recommended, 2 minutes)
+### Option 1 — One-command installer (Linux/Mac VPS)
 
 ```bash
 git clone https://github.com/fdsriopreto-code/memory-mcp-server
 cd memory-mcp-server
-cp .env.example .env
-# Edit .env with your keys (see below)
-docker-compose up -d
+chmod +x install.sh && ./install.sh
 ```
 
-That's it. Open `http://localhost:3101` for the dashboard.
+The installer will ask **3 questions only**:
+1. Your admin email
+2. Your admin password
+3. Your OpenAI API key
 
-### Option 2 — Desktop App
+**Everything else is automatic** — PostgreSQL, Redis, secrets, migrations, health checks.
 
-Download the installer for your OS from [Releases](https://github.com/fdsriopreto-code/memory-mcp-server/releases) and run it. The app connects to your server automatically.
+At the end it prints your MCP API key and connection config ready to paste into Claude.
 
-### Configure Claude Code
+---
 
-Add to your `~/.claude/settings.json`:
+### Option 2 — Windows
+
+```bat
+git clone https://github.com/fdsriopreto-code/memory-mcp-server
+cd memory-mcp-server
+install.bat
+```
+
+Same flow — just double-click `install.bat`.
+
+---
+
+### Option 3 — Desktop App
+
+Download the installer from [Releases](https://github.com/fdsriopreto-code/memory-mcp-server/releases) (Windows `.exe`, Mac `.dmg`, Linux `.AppImage`). It connects to a remote server you already set up, or runs the server locally if you have Docker installed.
+
+---
+
+### Connect Claude Code
+
+After the installer finishes, it prints the config. Or add it manually to `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "memory": {
       "type": "http",
-      "url": "http://localhost:3100/mcp",
+      "url": "http://YOUR_SERVER_IP:3100/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_MCP_API_KEY"
       }
@@ -141,15 +162,7 @@ Add to your `~/.claude/settings.json`:
 }
 ```
 
-### Required Environment Variables
-
-| Variable | Description | Where to get |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | [Neon](https://neon.tech) (free) or [Supabase](https://supabase.com) (free) |
-| `OPENAI_API_KEY` | For embeddings & AI features | [platform.openai.com](https://platform.openai.com) |
-| `JWT_SECRET` | Random 32+ char string | `openssl rand -hex 32` |
-| `MCP_API_KEY` | Your API key for Claude | Any random string |
-| `TAVILY_API_KEY` | Web search (optional) | [tavily.com](https://tavily.com) — free 1000/mo |
+> The MCP API key is shown at the end of the install and saved in `mcp-api-key.txt`.
 
 ---
 
