@@ -1,7 +1,17 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Memory MCP — iniciando container all-in-one"
+echo "🚀 Memory MCP — iniciando container all-in-one (PID $$)"
+
+# Evita múltiplas instâncias inicializando ao mesmo tempo
+LOCK_FILE="/tmp/mcp-init.lock"
+if [ -f "$LOCK_FILE" ] && kill -0 "$(cat $LOCK_FILE)" 2>/dev/null; then
+  echo "⚠ Outra instância já está inicializando (PID $(cat $LOCK_FILE)). Configure Replicas=1 no EasyPanel."
+  sleep 30
+  exit 1
+fi
+echo $$ > "$LOCK_FILE"
+trap "rm -f $LOCK_FILE" EXIT
 
 # ── 1. Valida variáveis obrigatórias ─────────────────────────────────────────
 MISSING=""
