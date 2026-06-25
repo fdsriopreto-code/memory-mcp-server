@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { exec, spawn } from "child_process";
+import { exec } from "child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, resolve } from "path";
 import { hostname, platform, homedir } from "os";
@@ -61,22 +61,19 @@ function connect() {
           return;
         }
 
-        // Executar o comando
-        const isWindows = platform() === "win32";
-        const shell = isWindows ? "cmd.exe" : "/bin/sh";
-        const shellFlag = isWindows ? "/c" : "-c";
-
-        const proc = spawn(shell, [shellFlag, command], {
+        // exec() resolve o shell automaticamente: COMSPEC no Windows, /bin/sh no Unix
+        // funciona em Git Bash, cmd.exe, PowerShell, Linux e Mac sem configuração
+        const proc = exec(command, {
           cwd: workdir,
           env: { ...process.env },
-          windowsHide: true,
+          maxBuffer: 10 * 1024 * 1024,
         });
 
-        proc.stdout.on("data", (chunk: Buffer) => {
+        proc.stdout?.on("data", (chunk: Buffer) => {
           ws.send(JSON.stringify({ type: "computer_output", commandId, chunk: chunk.toString() }));
         });
 
-        proc.stderr.on("data", (chunk: Buffer) => {
+        proc.stderr?.on("data", (chunk: Buffer) => {
           ws.send(JSON.stringify({ type: "computer_output", commandId, chunk: chunk.toString() }));
         });
 
