@@ -1,0 +1,21 @@
+{
+  "name": "memory-mcp-computer-agent",
+  "version": "1.0.0",
+  "description": "Agente local que conecta o computador ao Memory MCP Server",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node --experimental-vm-modules dist/index.js",
+    "dev": "tsx src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

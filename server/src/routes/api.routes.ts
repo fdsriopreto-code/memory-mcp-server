@@ -4,6 +4,7 @@ import { jwtAuth } from "../middleware/auth.js";
 import { encrypt, decrypt } from "../services/crypto.service.js";
 import { executeWrite } from "../services/connection.service.js";
 import { broadcast } from "../ws.js";
+import { getComputerAgents, sendToComputer } from "../ws.js";
 import { getLogBuffer } from "../logger.js";
 import { readdirSync, statSync } from "fs";
 import { join, extname, relative } from "path";
@@ -1109,6 +1110,49 @@ apiRoutes.get("/projects/:slug/conflicts", async (req, res) => {
       })),
       total: explicitConflicts.length + duplicates.length,
     });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Computer Agents ────────────────────────────────────────────────────────────
+apiRoutes.get("/computer-agents", (_req, res) => {
+  const agents = getComputerAgents();
+  res.json({ agents, total: agents.length });
+});
+
+// POST /api/computer-exec — chamado pelo terminal remoto no frontend
+apiRoutes.post("/computer-exec", async (req, res) => {
+  try {
+    const { command, workdir, agent_id } = req.body as { command: string; workdir?: string; agent_id?: string };
+    if (!command) { res.status(400).json({ error: "command obrigatório" }); return; }
+
+    const agents = getComputerAgents();
+    if (!agents.length) { res.status(503).json({ error: "Nenhum computador conectado" }); return; }
+
+    const targetId = agent_id ?? agents[0].agentId;
+    const result = await sendToComputer(targetId, command, workdir);
+    res.json({ output: result.output, exitCode: result.exitCode, agentId: targetId });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /api/agent-run — chamado pela AgentRunPage no frontend (fire and forget, progresso via WebSocket)
+apiRoutes.post("/agent-run", async (req, res) => {
+  try {
+    const { project, goal, max_steps = 8, workdir, computer_agent_id } = req.body as {
+      project: string; goal: string; max_steps?: number; workdir?: string; computer_agent_id?: string;
+    };
+    if (!project || !goal) { res.status(400).json({ error: "project e goal obrigatórios" }); return; }
+
+    // Retorna imediatamente — o progresso chega via WebSocket events:
+    // agent_run_start, agent_run_plan, agent_run_step, agent_run_step_done, agent_run_done
+    res.json({ status: "started", project, goal });
+
+    // Executa de forma async (fire and forget)
+    const { runAgentAsync } = await import("../services/agent.runner.js");
+    runAgentAsync({ project, goal, max_steps, workdir, computer_agent_id }).catch(() => {});
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

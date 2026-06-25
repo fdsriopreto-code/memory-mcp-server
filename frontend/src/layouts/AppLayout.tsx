@@ -33,10 +33,14 @@ const Icon = {
   atlas:    <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"/><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 3v4M10 13v4M3 10h4M13 10h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
   debt:     <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M4 16V8l6-5 6 5v8" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><rect x="7.5" y="11" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/><path d="M10 11v5" stroke="currentColor" strokeWidth="1.3"/></svg>,
   health:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M3 10h2l2-5 3 9 2-7 1 3h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  robot:    <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><rect x="5" y="7" width="10" height="8" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 4v3M7.5 11h.01M12.5 11h.01M8 14h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><path d="M3 11h2M15 11h2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+  terminal: <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M6 9l3 3-3 3M11 15h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>,
 };
 
 const NAV = [
   { to: "/",               label: "Dashboard",   icon: Icon.dashboard, badge: null   },
+  { to: "/agent-run", label: "Agent Run", icon: Icon.robot,    badge: "new"  },
+  { to: "/computer",  label: "Terminal",  icon: Icon.terminal, badge: null   },
   { to: "/agents",         label: "Agentes",     icon: Icon.agents,    badge: "live" },
   { to: "/brain",          label: "Brain",       icon: Icon.brain,     badge: "hot"  },
   { to: "/brain-graph",    label: "Brain Graph", icon: Icon.graph,     badge: "hot"  },
