@@ -27,6 +27,7 @@ import KnowledgeDebtPage from "./pages/KnowledgeDebtPage";
 import BrainHealthPage from "./pages/BrainHealthPage";
 import AgentRunPage from "./pages/AgentRunPage";
 import ComputerPage from "./pages/ComputerPage";
+import HelpPage from "./pages/HelpPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -66,6 +67,7 @@ export default function App() {
               <Route path="/brain-health"   element={<BrainHealthPage />} />
               <Route path="/agent-run" element={<AgentRunPage />} />
               <Route path="/computer"  element={<ComputerPage />} />
+              <Route path="/help"      element={<HelpPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

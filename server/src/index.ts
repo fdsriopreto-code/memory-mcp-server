@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
 import express, { type Request, type Response, type NextFunction } from "express";
+import path from "path";
+import { existsSync } from "fs";
 import { env } from "./config/env.js";
 import { prisma } from "./config/database.js";
 import { redis } from "./config/redis.js";
@@ -87,6 +89,23 @@ setInterval(async () => {
     console.error("[cleanup] Erro:", e);
   }
 }, 24 * 60 * 60_000);
+
+// Modo Electron: serve o frontend estático também
+if (process.env.SERVE_FRONTEND === "true") {
+  const frontendDist = process.env.FRONTEND_DIST ?? path.join(process.cwd(), "../frontend/dist");
+  app.use(express.static(frontendDist));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api") || req.path.startsWith("/mcp") || req.path.startsWith("/auth") || req.path.startsWith("/ws")) {
+      return next();
+    }
+    const indexHtml = path.join(frontendDist, "index.html");
+    if (existsSync(indexHtml)) {
+      res.sendFile(indexHtml);
+    } else {
+      next();
+    }
+  });
+}
 
 async function start() {
   await redis.connect().catch(() => console.warn("[Redis] Conectando em background..."));

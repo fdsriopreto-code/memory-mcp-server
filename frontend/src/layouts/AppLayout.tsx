@@ -35,6 +35,7 @@ const Icon = {
   health:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M3 10h2l2-5 3 9 2-7 1 3h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   robot:    <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><rect x="5" y="7" width="10" height="8" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 4v3M7.5 11h.01M12.5 11h.01M8 14h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><path d="M3 11h2M15 11h2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
   terminal: <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><rect x="2" y="4" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M6 9l3 3-3 3M11 15h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  help:     <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 14v.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><path d="M10 11c0-1.5 2.5-1.5 2.5-3.5A2.5 2.5 0 007.5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
 };
 
 const NAV = [
@@ -60,6 +61,7 @@ const NAV = [
   { to: "/audit",          label: "Atividade",   icon: Icon.audit,     badge: "live" },
   { to: "/logs",           label: "Logs",        icon: Icon.logs,      badge: null   },
   { to: "/services",       label: "Serviços",    icon: Icon.services,  badge: null   },
+  { to: "/help",           label: "Ajuda",       icon: Icon.help,      badge: null   },
 ];
 
 const FULLSCREEN_ROUTES = ["/brain-graph"];
