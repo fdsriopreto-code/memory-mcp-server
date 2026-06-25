@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Memory MCP — Setup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:     #0a0a0f;
+    --card:   #111118;
+    --border: #1e1e2e;
+    --text:   #e2e2f0;
+    --muted:  #6b6b8a;
+    --accent: #6366f1;
+    --accent2:#a855f7;
+    --red:    #ef4444;
+    --green:  #22c55e;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    -webkit-app-region: drag;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 560px;
+    padding: 40px;
+    -webkit-app-region: no-drag;
+    box-shadow: 0 0 60px rgba(99,102,241,0.08);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .logo-icon {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+
+  .logo h1 { font-size: 20px; font-weight: 700; }
+  .logo p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Steps */
+  .steps {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 32px;
+  }
+  .step-dot {
+    flex: 1;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background 0.3s;
+  }
+  .step-dot.active   { background: var(--accent); }
+  .step-dot.done     { background: var(--accent2); }
+
+  /* Step pages */
+  .step-page { display: none; }
+  .step-page.visible { display: block; }
+
+  h2 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  .subtitle { font-size: 13px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+
+  /* Mode selector */
+  .mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .mode-btn {
+    background: var(--bg);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 16px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+    color: var(--text);
+  }
+  .mode-btn:hover { border-color: var(--accent); }
+  .mode-btn.selected { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+  .mode-btn .mode-icon { font-size: 28px; margin-bottom: 8px; }
+  .mode-btn .mode-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .mode-btn .mode-desc  { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+  /* Form fields */
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .field input, .field select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--muted); }
+  .field .hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 5px;
+    line-height: 1.4;
+  }
+  .field .hint a { color: var(--accent); cursor: pointer; text-decoration: none; }
+
+  /* optional badge */
+  .badge-optional {
+    display: inline-block;
+    font-size: 10px;
+    background: rgba(99,102,241,0.15);
+    color: var(--accent);
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+    font-weight: 500;
+  }
+
+  /* Buttons */
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+  }
+  .btn {
+    flex: 1;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .btn-ghost:hover { border-color: var(--text); color: var(--text); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: white;
+  }
+  .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.4; transform: none; cursor: not-allowed; }
+
+  /* Status messages */
+  .status {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    display: none;
+  }
+  .status.error   { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--red); display: block; }
+  .status.success { background: rgba(34,197,94,0.1);  border: 1px solid rgba(34,197,94,0.3); color: var(--green); display: block; }
+  .status.loading { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); color: var(--accent); display: block; }
+
+  /* Progress bar */
+  .progress-wrap { margin-top: 16px; display: none; }
+  .progress-wrap.visible { display: block; }
+  .progress-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.5s;
+  }
+  .progress-label { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* Success */
+  .success-icon {
+    font-size: 56px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .success-body { text-align: center; }
+  .success-body h2 { font-size: 20px; margin-bottom: 8px; }
+  .success-body p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* Section divider */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 20px 0;
+  }
+
+  /* Info box */
+  .info-box {
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+  .info-box a { color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <div class="logo">
+    <div class="logo-icon">🧠</div>
+    <div>
+      <h1>Memory MCP</h1>
+      <p>Configuração inicial</p>
+    </div>
+  </div>
+
+  <!-- Step dots -->
+  <div class="steps">
+    <div class="step-dot active"  id="dot-0"></div>
+    <div class="step-dot"         id="dot-1"></div>
+    <div class="step-dot"         id="dot-2"></div>
+  </div>
+
+  <!-- ─────────────────────────────────────────── STEP 0: Modo ── -->
+  <div class="step-page visible" id="step-0">
+    <h2>Como você quer usar o Memory MCP?</h2>
+    <p class="subtitle">Escolha o modo de operação. Você pode trocar isso depois em Configurações.</p>
+
+    <div class="mode-grid">
+      <div class="mode-btn" id="mode-local" onclick="selectMode('local')">
+        <div class="mode-icon">🖥️</div>
+        <div class="mode-title">Local</div>
+        <div class="mode-desc">Roda tudo no seu PC. Precisa de uma URL de banco PostgreSQL (grátis no Neon).</div>
+      </div>
+      <div class="mode-btn" id="mode-vps" onclick="selectMode('vps')">
+        <div class="mode-icon">☁️</div>
+        <div class="mode-title">VPS / Cloud</div>
+        <div class="mode-desc">Conecta a um servidor já existente no EasyPanel, Railway, Render, etc.</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-step0" onclick="goStep(1)" disabled>Continuar →</button>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────── STEP 1: Config ── -->
+  <div class="step-page" id="step-1">
+
+    <!-- VPS mode -->
+    <div id="vps-fields">
+      <h2>URL do servidor</h2>
+      <p class="subtitle">Cole a URL da sua instância Memory MCP (EasyPanel, Railway, Render…).</p>
+      <div class="field">
+        <label>URL do servidor</label>
+        <input type="url" id="vps-url" placeholder="https://seu-servidor.easypanel.host" oninput="validateStep1()"/>
+      </div>
+    </div>
+
+    <!-- Local mode -->
+    <div id="local-fields" style="display:none">
+      <h2>Configurar servidor local</h2>
+      <p class="subtitle">O servidor vai rodar direto no seu PC. Preencha as chaves abaixo.</p>
+
+      <div class="info-box">
+        📦 O banco de dados é o único serviço externo necessário.<br>
+        Crie um grátis em <a onclick="openUrl('https://neon.tech')">neon.tech</a> → New Project → copie a connection string.
+      </div>
+
+      <div class="field">
+        <label>URL do PostgreSQL <span style="color:var(--red)">*</span></label>
+        <input type="text" id="db-url" placeholder="postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require" oninput="validateStep1()"/>
+        <div class="hint">Neon.tech oferece 512MB grátis — sem cartão de crédito. <a onclick="openUrl('https://neon.tech')">Criar conta grátis →</a></div>
+      </div>
+
+      <div class="field">
+        <label>OpenAI API Key <span style="color:var(--red)">*</span></label>
+        <input type="password" id="openai-key" placeholder="sk-proj-..." oninput="validateStep1()"/>
+        <div class="hint">Usado para embeddings semânticos. <a onclick="openUrl('https://platform.openai.com/api-keys')">Gerar chave →</a></div>
+      </div>
+
+      <hr class="divider"/>
+
+      <div class="field">
+        <label>Tavily API Key <span class="badge-optional">opcional</span></label>
+        <input type="password" id="tavily-key" placeholder="tvly-..." />
+        <div class="hint">Pesquisa web inteligente. <a onclick="openUrl('https://tavily.com')">1000 buscas/mês grátis →</a></div>
+      </div>
+
+      <div class="field">
+        <label>Porta local <span class="badge-optional">opcional</span></label>
+        <input type="number" id="local-port" placeholder="3100" min="1024" max="65535"/>
+        <div class="hint">Porta onde o servidor vai rodar. Padrão: 3100</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="goStep(0)">← Voltar</button>
+      <button class="btn btn-primary" id="btn-step1" onclick="goStep(2)" disabled>Continuar →</button>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────── STEP 2: Conta ── -->
+  <div class="step-page" id="step-2">
+    <div id="step2-local">
+      <h2>Criar conta de administrador</h2>
+      <p class="subtitle">Essa conta vai ter acesso total ao sistema.</p>
+
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" id="admin-name" placeholder="Seu nome" oninput="validateStep2()"/>
+      </div>
+
+      <div class="field">
+        <label>E-mail</label>
+        <input type="email" id="admin-email" placeholder="voce@email.com" oninput="validateStep2()"/>
+      </div>
+
+      <div class="field">
+        <label>Senha</label>
+        <input type="password" id="admin-password" placeholder="Mínimo 8 caracteres" oninput="validateStep2()"/>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(1)">← Voltar</button>
+        <button class="btn btn-primary" id="btn-step2-local" onclick="startServer()" disabled>Iniciar servidor →</button>
+      </div>
+    </div>
+
+    <div id="step2-vps" style="display:none">
+      <h2>Pronto! ✨</h2>
+      <p class="subtitle">O Memory MCP vai conectar ao seu servidor em instantes.</p>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(1)">← Voltar</button>
+        <button class="btn btn-primary" onclick="saveVpsAndLaunch()">Abrir Memory MCP →</button>
+      </div>
+    </div>
+
+    <!-- Progress bar (local mode) -->
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-label" id="progress-label">Iniciando servidor...</div>
+    </div>
+
+    <div class="status" id="status-step2"></div>
+  </div>
+
+  <!-- ─────────────────────────────────────────── STEP 3: Sucesso ── -->
+  <div class="step-page" id="step-3">
+    <div class="success-body">
+      <div class="success-icon">🎉</div>
+      <h2>Memory MCP está rodando!</h2>
+      <p>Servidor iniciado com sucesso.<br>A janela principal vai abrir em instantes.</p>
+      <div class="btn-row" style="margin-top:24px">
+        <button class="btn btn-primary" onclick="launch()">Abrir agora →</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Comunicação com o processo Electron principal via IPC
+  const ipc = window.electronAPI;
+
+  let mode = null; // 'local' | 'vps'
+
+  function openUrl(url) {
+    ipc?.openExternal(url);
+  }
+
+  // ── Step navigation ──────────────────────────────────────────────
+  function goStep(n) {
+    document.querySelectorAll(".step-page").forEach(p => p.classList.remove("visible"));
+    document.getElementById("step-" + n).classList.add("visible");
+
+    document.querySelectorAll(".step-dot").forEach((d, i) => {
+      d.className = "step-dot" + (i < n ? " done" : i === n ? " active" : "");
+    });
+  }
+
+  // ── Step 0: Mode selection ────────────────────────────────────────
+  function selectMode(m) {
+    mode = m;
+    document.getElementById("mode-local").classList.toggle("selected", m === "local");
+    document.getElementById("mode-vps").classList.toggle("selected", m === "vps");
+    document.getElementById("btn-step0").disabled = false;
+
+    // Pre-configure step 1 view
+    document.getElementById("local-fields").style.display = m === "local" ? "block" : "none";
+    document.getElementById("vps-fields").style.display   = m === "vps"   ? "block" : "none";
+    document.getElementById("step2-local").style.display  = m === "local" ? "block" : "none";
+    document.getElementById("step2-vps").style.display    = m === "vps"   ? "block" : "none";
+
+    validateStep1();
+  }
+
+  // ── Step 1: Validation ────────────────────────────────────────────
+  function validateStep1() {
+    let valid = false;
+    if (mode === "vps") {
+      const url = document.getElementById("vps-url").value.trim();
+      valid = url.startsWith("http");
+    } else if (mode === "local") {
+      const db  = document.getElementById("db-url").value.trim();
+      const key = document.getElementById("openai-key").value.trim();
+      valid = db.startsWith("postgresql") && key.startsWith("sk-");
+    }
+    document.getElementById("btn-step1").disabled = !valid;
+  }
+
+  // ── Step 2: Validation (local mode admin account) ─────────────────
+  function validateStep2() {
+    const name  = document.getElementById("admin-name").value.trim();
+    const email = document.getElementById("admin-email").value.trim();
+    const pass  = document.getElementById("admin-password").value;
+    const valid = name.length > 1 && email.includes("@") && pass.length >= 8;
+    document.getElementById("btn-step2-local").disabled = !valid;
+  }
+
+  // ── Save VPS config and launch ────────────────────────────────────
+  function saveVpsAndLaunch() {
+    const url = document.getElementById("vps-url").value.trim();
+    ipc?.saveConfig({ mode: "vps", serverUrl: url });
+    ipc?.launch(url);
+  }
+
+  // ── Start local server ────────────────────────────────────────────
+  async function startServer() {
+    const config = {
+      mode:          "local",
+      databaseUrl:   document.getElementById("db-url").value.trim(),
+      openaiApiKey:  document.getElementById("openai-key").value.trim(),
+      tavilyApiKey:  document.getElementById("tavily-key").value.trim(),
+      port:          parseInt(document.getElementById("local-port").value) || 3100,
+      adminName:     document.getElementById("admin-name").value.trim(),
+      adminEmail:    document.getElementById("admin-email").value.trim(),
+      adminPassword: document.getElementById("admin-password").value,
+    };
+
+    // Disable buttons
+    document.getElementById("btn-step2-local").disabled = true;
+    document.getElementById("progress-wrap").classList.add("visible");
+    setStatus("loading", "⏳ Iniciando servidor...");
+    setProgress(10, "Salvando configuração...");
+
+    ipc?.saveConfig(config);
+    await sleep(500);
+    setProgress(30, "Aplicando migrações do banco de dados...");
+
+    try {
+      const result = await ipc?.startLocalServer(config);
+      if (!result?.ok) {
+        setStatus("error", "❌ Erro ao iniciar servidor: " + (result?.error || "desconhecido"));
+        document.getElementById("btn-step2-local").disabled = false;
+        return;
+      }
+
+      setProgress(80, "Criando conta de administrador...");
+      await sleep(800);
+      setProgress(100, "Pronto!");
+      await sleep(500);
+
+      goStep(3);
+    } catch(e) {
+      setStatus("error", "❌ " + e.message);
+      document.getElementById("btn-step2-local").disabled = false;
+    }
+  }
+
+  function launch() {
+    ipc?.launch("http://localhost:" + (parseInt(document.getElementById("local-port")?.value)||3100));
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────
+  function setStatus(type, msg) {
+    const el = document.getElementById("status-step2");
+    el.className = "status " + type;
+    el.textContent = msg;
+  }
+
+  function setProgress(pct, label) {
+    document.getElementById("progress-fill").style.width  = pct + "%";
+    document.getElementById("progress-label").textContent = label;
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
