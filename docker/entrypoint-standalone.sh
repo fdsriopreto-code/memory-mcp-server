@@ -21,11 +21,8 @@ if [ -n "$MISSING" ]; then
   exit 1
 fi
 
-# ── 2. Garante diretórios com permissões corretas ─────────────────────────────
-# /data pode ser volume montado como root — criamos subpastas com chmod
-mkdir -p /tmp/pg-logs /tmp/redis-logs
+# ── 2. Garante /data com permissões corretas ──────────────────────────────────
 mkdir -p /data 2>/dev/null || true
-# Tenta criar /data com permissão permissiva (ignora erro se volume externo)
 chmod 777 /data 2>/dev/null || true
 
 # ── 3. Gera ou carrega segredos automáticos ───────────────────────────────────
@@ -76,11 +73,14 @@ chown -R postgres:postgres "$PG_DATA" 2>/dev/null || true
 if [ ! -f "$PG_DATA/PG_VERSION" ]; then
   echo "📦 Inicializando PostgreSQL pela primeira vez..."
   su -s /bin/bash postgres -c "$PG_BIN/initdb -D $PG_DATA --auth-local=trust --auth-host=trust -E UTF8 --no-locale"
+  # Loga no stderr (stdout do container), não em arquivo
+  echo "logging_collector = off" >> "$PG_DATA/postgresql.conf"
+  echo "log_destination = 'stderr'"  >> "$PG_DATA/postgresql.conf"
 fi
 
 echo "▶ Iniciando PostgreSQL..."
-# Usa /tmp para o log do postgres (sem problema de permissão)
-su -s /bin/bash postgres -c "$PG_BIN/pg_ctl -D $PG_DATA -l /tmp/pg-logs/postgres.log start -w -t 60"
+# Sem -l: postgres loga direto no stdout/stderr (correto para Docker)
+su -s /bin/bash postgres -c "$PG_BIN/pg_ctl -D $PG_DATA start -w -t 60"
 echo "✅ PostgreSQL pronto"
 
 # Cria usuário/banco/extensão na primeira vez
@@ -96,7 +96,7 @@ su -s /bin/bash postgres -c "psql -U postgres -d mcp_db -c \"CREATE EXTENSION IF
 echo "▶ Iniciando Redis..."
 redis-server /etc/redis/redis-standalone.conf \
   --daemonize yes \
-  --logfile /tmp/redis-logs/redis.log \
+  --logfile "" \
   --pidfile /tmp/redis.pid
 echo "✅ Redis pronto"
 
