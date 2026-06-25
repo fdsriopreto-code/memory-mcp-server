@@ -287,11 +287,19 @@
 
     <!-- VPS mode -->
     <div id="vps-fields">
-      <h2>URL do servidor</h2>
-      <p class="subtitle">Cole a URL da sua instância Memory MCP (EasyPanel, Railway, Render…).</p>
+      <h2>URL do dashboard</h2>
+      <p class="subtitle">Cole a URL onde o painel do Memory MCP abre no seu browser. Ao abrir, vai aparecer uma tela de login.</p>
+
+      <div class="info-box">
+        💡 <strong>Essa URL precisa mostrar o painel (interface web)</strong>, não a API.<br>
+        No EasyPanel, é a URL do serviço que tem o <strong>frontend</strong> ou que usa o <code>Dockerfile</code> da raiz do projeto.<br><br>
+        Se você só tem o backend deployado, <a onclick="openUrl('https://github.com/fdsriopreto-code/memory-mcp-server#deploy')">veja como deployer o frontend →</a>
+      </div>
+
       <div class="field">
-        <label>URL do servidor</label>
-        <input type="url" id="vps-url" placeholder="https://seu-servidor.easypanel.host" oninput="validateStep1()"/>
+        <label>URL do painel (dashboard)</label>
+        <input type="url" id="vps-url" placeholder="https://memory-mcp.seuservidor.easypanel.host" oninput="validateStep1()"/>
+        <div class="hint">A URL deve abrir uma tela de login quando acessada no browser.</div>
       </div>
     </div>
 
