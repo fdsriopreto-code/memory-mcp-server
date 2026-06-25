@@ -73,6 +73,7 @@ function createTray(): void {
       { type:  "separator" },
       { label: "Configurações",   click: () => shell.openPath(CONFIG_PATH) },
       { label: "Reconfigurar",    click: () => openSetup() },
+      { label: "DevTools",        click: () => mainWindow?.webContents.openDevTools() },
       { type:  "separator" },
       { label: "Sair",            click: () => { isQuitting = true; app.quit(); } },
     ]);
@@ -142,13 +143,27 @@ function createMainWindow(url: string): void {
     minHeight:       600,
     title:           "Memory MCP",
     backgroundColor: "#0a0a0f",
+    show:            false,          // só mostra depois de carregar (sem tela preta)
     webPreferences: {
       nodeIntegration:  false,
       contextIsolation: true,
     },
   });
 
-  mainWindow.loadURL(url);
+  // Mostra a janela assim que o primeiro frame renderizou
+  mainWindow.once("ready-to-show", () => mainWindow?.show());
+
+  // Enquanto carrega, mostra uma tela de loading
+  mainWindow.loadURL(`data:text/html,<!DOCTYPE html>
+<html><body style="background:%230a0a0f;color:%23fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px">
+<div style="width:48px;height:48px;border:3px solid %23333;border-top-color:%236366f1;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+<div style="font-size:15px;color:%23888">Conectando ao servidor...</div>
+<div style="font-size:12px;color:%23444;max-width:400px;text-align:center;word-break:break-all">${url}</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</body></html>`);
+
+  // Depois de exibir o loading, carrega a URL real
+  setTimeout(() => mainWindow?.loadURL(url), 500);
 
   mainWindow.webContents.setWindowOpenHandler(({ url: u }) => {
     shell.openExternal(u);
@@ -160,13 +175,36 @@ function createMainWindow(url: string): void {
   });
 
   mainWindow.webContents.on("did-fail-load", (_e, code, desc) => {
+    const encodedUrl = encodeURIComponent(url);
     mainWindow?.loadURL(`data:text/html,<!DOCTYPE html>
-<html><body style="background:%230a0a0f;color:%23fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px;text-align:center">
-<div style="font-size:48px">⚠️</div>
-<div style="font-size:18px;font-weight:600">Servidor inacessível</div>
-<div style="color:%23ef4444;font-size:13px">${url}</div>
-<div style="color:%23555;font-size:11px">Erro ${code}: ${desc}</div>
-<button onclick="location.reload()" style="margin-top:12px;padding:10px 24px;background:%236366f1;border:none;border-radius:8px;color:%23fff;cursor:pointer;font-size:14px">Tentar novamente</button>
+<html>
+<head><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:%230a0a0f;color:%23fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px}
+.card{background:%23111118;border:1px solid %231e1e2e;border-radius:16px;padding:40px;max-width:500px;width:100%;text-align:center}
+h2{font-size:18px;margin:16px 0 8px}
+.url{font-size:12px;color:%23ef4444;word-break:break-all;margin-bottom:8px}
+.err{font-size:11px;color:%23555;margin-bottom:24px}
+input{width:100%;background:%230a0a0f;border:1px solid %231e1e2e;border-radius:8px;padding:10px 14px;color:%23fff;font-size:13px;margin-bottom:12px;outline:none}
+input:focus{border-color:%236366f1}
+.btns{display:flex;gap:10px}
+button{flex:1;padding:10px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+.retry{background:%236366f1;color:%23fff}
+.open{background:%231e1e2e;color:%23aaa}
+</style></head>
+<body>
+<div class="card">
+  <div style="font-size:48px">⚠️</div>
+  <h2>Servidor não encontrado</h2>
+  <div class="url">${url}</div>
+  <div class="err">Erro ${code}: ${desc}</div>
+  <p style="font-size:12px;color:%23666;margin-bottom:16px">Verifique se o servidor está online e tente novamente.</p>
+  <input id="u" value="${url}" placeholder="https://seu-servidor..." />
+  <div class="btns">
+    <button class="retry" onclick="location.href=document.getElementById('u').value">Conectar</button>
+    <button class="open" onclick="window.open(document.getElementById('u').value)">Abrir no browser</button>
+  </div>
+</div>
 </body></html>`);
   });
 }
