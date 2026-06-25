@@ -79,7 +79,11 @@ function createTray(): void {
   };
 
   rebuild();
-  tray.on("double-click", () => { mainWindow?.show(); mainWindow?.focus(); });
+  tray.on("double-click", () => {
+    if (mainWindow)       { mainWindow.show();  mainWindow.focus();  }
+    else if (setupWindow) { setupWindow.show(); setupWindow.focus(); }
+    else                  { openSetup(); }
+  });
 }
 
 // ── Setup window ───────────────────────────────────────────────────────────────
@@ -87,15 +91,13 @@ function openSetup(): void {
   if (setupWindow) { setupWindow.focus(); return; }
 
   setupWindow = new BrowserWindow({
-    width:           600,
-    height:          700,
+    width:           620,
+    height:          720,
     minWidth:        540,
     minHeight:       560,
     resizable:       true,
     title:           "Memory MCP — Setup",
     backgroundColor: "#0a0a0f",
-    frame:           false,
-    titleBarStyle:   "hidden",
     webPreferences: {
       nodeIntegration:  false,
       contextIsolation: true,
@@ -103,11 +105,28 @@ function openSetup(): void {
     },
   });
 
+  // setup.html está dentro do asar junto com dist/
   const setupHtml = app.isPackaged
-    ? path.join(path.dirname(app.getAppPath()), "setup.html")
+    ? path.join(app.getAppPath(), "setup.html")
     : path.join(__dirname, "../setup.html");
 
   setupWindow.loadFile(setupHtml);
+
+  // Abre DevTools em desenvolvimento para depurar
+  if (!app.isPackaged) setupWindow.webContents.openDevTools();
+
+  setupWindow.webContents.on("did-fail-load", (_e, code, desc) => {
+    console.error(`[setup] Falha ao carregar setup.html: ${code} ${desc} | path: ${setupHtml}`);
+    // Fallback: mostra HTML inline se o arquivo não carregar
+    setupWindow?.loadURL(`data:text/html,<!DOCTYPE html>
+<html><body style="background:%230a0a0f;color:%23fff;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px;padding:32px;text-align:center">
+<div style="font-size:48px">🧠</div>
+<div style="font-size:20px;font-weight:700">Memory MCP</div>
+<div style="font-size:13px;color:%23888">Erro ao carregar setup (${code})<br>${desc}</div>
+<div style="font-size:11px;color:%23555;margin-top:8px;max-width:400px;word-break:break-all">${setupHtml}</div>
+<button onclick="window.electronAPI?.launch('https://ferramentas-memory-mcp-server.m5mfeg.easypanel.host')" style="margin-top:16px;padding:12px 28px;background:%236366f1;border:none;border-radius:8px;color:%23fff;cursor:pointer;font-size:14px;font-weight:600">Usar servidor padrão</button>
+</body></html>`);
+  });
   setupWindow.on("closed", () => { setupWindow = null; });
 }
 
@@ -249,7 +268,11 @@ async function main() {
     app.quit();
     return;
   }
-  app.on("second-instance", () => { mainWindow?.show(); mainWindow?.focus(); });
+  app.on("second-instance", () => {
+    if (mainWindow)       { mainWindow.show();  mainWindow.focus();  }
+    else if (setupWindow) { setupWindow.show(); setupWindow.focus(); }
+    else                  { openSetup(); }
+  });
 
   if (process.platform === "darwin") app.dock?.hide();
 
