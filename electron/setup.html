@@ -326,6 +326,12 @@
       </div>
 
       <div class="field">
+        <label>Redis URL <span class="badge-optional">opcional</span></label>
+        <input type="text" id="redis-url" placeholder="redis://...  ou  rediss://..." />
+        <div class="hint">Cache de embeddings — melhora performance. <a onclick="openUrl('https://upstash.com')">Upstash grátis (10k req/dia) →</a><br>Se deixar em branco, o sistema funciona normalmente sem cache.</div>
+      </div>
+
+      <div class="field">
         <label>Porta local <span class="badge-optional">opcional</span></label>
         <input type="number" id="local-port" placeholder="3100" min="1024" max="65535"/>
         <div class="hint">Porta onde o servidor vai rodar. Padrão: 3100</div>
@@ -470,6 +476,7 @@
       databaseUrl:   document.getElementById("db-url").value.trim(),
       openaiApiKey:  document.getElementById("openai-key").value.trim(),
       tavilyApiKey:  document.getElementById("tavily-key").value.trim(),
+      redisUrl:      document.getElementById("redis-url").value.trim(),
       port:          parseInt(document.getElementById("local-port").value) || 3100,
       adminName:     document.getElementById("admin-name").value.trim(),
       adminEmail:    document.getElementById("admin-email").value.trim(),

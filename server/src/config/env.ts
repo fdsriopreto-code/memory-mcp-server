@@ -6,7 +6,7 @@ const required = (key: string): string => {
 
 export const env = {
   DATABASE_URL:    required("DATABASE_URL"),
-  REDIS_URL:       required("REDIS_URL"),
+  REDIS_URL:       process.env.REDIS_URL?.trim() ?? "",   // opcional — sem Redis, cache desabilitado
   OPENAI_API_KEY:  required("OPENAI_API_KEY"),
   MCP_API_KEY:     required("MCP_API_KEY"),
   ADMIN_EMAIL:     required("ADMIN_EMAIL"),

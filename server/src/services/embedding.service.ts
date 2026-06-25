@@ -11,13 +11,13 @@ const CACHE_TTL = 60 * 60 * 24 * 7; // 7 days
 export async function getEmbedding(text: string): Promise<number[]> {
   const cacheKey = `embed:${Buffer.from(text).toString("base64").slice(0, 64)}`;
 
-  const cached = await redis.get(cacheKey).catch(() => null);
+  const cached = redis ? await redis.get(cacheKey).catch(() => null) : null;
   if (cached) return JSON.parse(cached) as number[];
 
   const normalized = text.replace(/\n+/g, " ").trim().slice(0, 8000);
   const res = await openai.embeddings.create({ model: MODEL, input: normalized, dimensions: DIMS });
   const vector = res.data[0].embedding;
 
-  await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(vector)).catch(() => {});
+  if (redis) await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(vector)).catch(() => {});
   return vector;
 }

@@ -108,7 +108,7 @@ if (process.env.SERVE_FRONTEND === "true") {
 }
 
 async function start() {
-  await redis.connect().catch(() => console.warn("[Redis] Conectando em background..."));
+  if (redis) await redis.connect().catch(() => console.warn("[Redis] Conectando em background..."));
   await prisma.$connect();
   initWss(server);
   server.listen(env.PORT, () => {

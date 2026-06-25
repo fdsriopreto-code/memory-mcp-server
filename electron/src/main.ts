@@ -26,6 +26,7 @@ interface Config {
   setupDone?:    boolean;
   jwtSecret?:    string;
   mcpApiKey?:    string;
+  redisUrl?:     string;
 }
 
 function loadConfig(): Config | null {
@@ -192,6 +193,7 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
       ADMIN_PASSWORD:   cfg.adminPassword,
       ADMIN_NAME:       cfg.adminName,
       TAVILY_API_KEY:   cfg.tavilyApiKey ?? "",
+      REDIS_URL:        cfg.redisUrl ?? "",
     };
 
     // Persiste o JWT secret e MCP key no config (para não regenerar ao reiniciar)
