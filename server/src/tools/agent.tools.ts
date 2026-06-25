@@ -6,22 +6,48 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ── Web Search (Brave Search API) ─────────────────────────────────────────────
-async function braveSearch(query: string, count = 5): Promise<string> {
-  const key = process.env.BRAVE_SEARCH_API_KEY;
-  if (!key) return `⚠️ BRAVE_SEARCH_API_KEY não configurado. Adicione nas variáveis de ambiente do EasyPanel.\nQuery: "${query}"`;
+// ── Web Search: Tavily (grátis 1000/mês) ou DuckDuckGo (sem chave) ────────────
+async function webSearch(query: string, count = 5): Promise<string> {
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  if (tavilyKey) {
+    const resp = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: tavilyKey, query, max_results: count, search_depth: "basic" }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (resp.ok) {
+      const data = await resp.json() as any;
+      const results = (data.results ?? []).slice(0, count);
+      if (results.length) {
+        return results.map((r: any, i: number) =>
+          `**${i + 1}. ${r.title}**\n${r.url}\n${r.content?.slice(0, 200) ?? ""}`
+        ).join("\n\n");
+      }
+    }
+  }
 
+  // Fallback: DuckDuckGo HTML sem chave
   const resp = await fetch(
-    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`,
-    { headers: { "Accept": "application/json", "X-Subscription-Token": key } }
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "text/html" }, signal: AbortSignal.timeout(15_000) }
   );
-  if (!resp.ok) throw new Error(`Brave Search API error: ${resp.status}`);
-  const data = await resp.json() as any;
+  if (!resp.ok) throw new Error(`DuckDuckGo HTTP ${resp.status}`);
+  const html = await resp.text();
 
-  const results = (data.web?.results ?? []).slice(0, count);
-  return results.map((r: any, i: number) =>
-    `**${i + 1}. ${r.title}**\n${r.url}\n${r.description ?? ""}`
-  ).join("\n\n");
+  const results: string[] = [];
+  const blocks = html.match(/<div class="result[^"]*result--web[\s\S]*?<\/article>/g) ?? [];
+  for (const block of blocks.slice(0, count)) {
+    const titleM   = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+    const urlM     = block.match(/class="result__url"[^>]*>([\s\S]*?)<\/a>/);
+    const snippetM = block.match(/class="result__snippet">([\s\S]*?)<\/a>/);
+    if (!titleM) continue;
+    const title   = titleM[1].replace(/<[^>]+>/g, "").trim();
+    const url     = urlM ? urlM[1].replace(/<[^>]+>/g, "").trim() : "";
+    const snippet = snippetM ? snippetM[1].replace(/<[^>]+>/g, "").trim() : "";
+    results.push(`**${results.length + 1}. ${title}**\n${url}\n${snippet}`);
+  }
+  return results.length ? results.join("\n\n") : `Sem resultados para: "${query}"`;
 }
 
 // ── Web Fetch (URL → readable text) ──────────────────────────────────────────
@@ -51,14 +77,14 @@ export function registerAgentTools(server: McpServer) {
 
   server.tool(
     "web_search",
-    "Pesquisa na internet usando Brave Search — retorna títulos, URLs e descrições dos resultados mais relevantes",
+    "Pesquisa na internet — usa Tavily (TAVILY_API_KEY) se configurado, caso contrário usa DuckDuckGo sem chave. Retorna títulos, URLs e trechos.",
     {
       query:       z.string().describe("O que pesquisar"),
       max_results: z.number().min(1).max(10).default(5).describe("Número máximo de resultados"),
     },
     async ({ query, max_results }) => {
       try {
-        const results = await braveSearch(query, max_results);
+        const results = await webSearch(query, max_results);
         await logAudit(null, "web_search", { query }, results.slice(0, 200));
         return { content: [{ type: "text" as const, text: `# 🔍 Resultados: "${query}"\n\n${results}` }] };
       } catch (e: unknown) {

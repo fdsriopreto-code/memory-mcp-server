@@ -6,18 +6,52 @@ import { extractMemoriesFromText } from "./ai.service.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function braveSearch(query: string, count = 5): Promise<string> {
-  const key = process.env.BRAVE_SEARCH_API_KEY;
-  if (!key) return `⚠️ BRAVE_SEARCH_API_KEY não configurado.\nQuery: "${query}"`;
+async function webSearch(query: string, count = 5): Promise<string> {
+  // Tavily (free 1000/mês — tavily.com) se configurado
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  if (tavilyKey) {
+    const resp = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: tavilyKey, query, max_results: count, search_depth: "basic" }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (resp.ok) {
+      const data = await resp.json() as any;
+      const results = (data.results ?? []).slice(0, count);
+      if (results.length) {
+        return results.map((r: any, i: number) =>
+          `**${i + 1}. ${r.title}**\n${r.url}\n${r.content?.slice(0, 200) ?? ""}`
+        ).join("\n\n");
+      }
+    }
+  }
+
+  // Fallback: DuckDuckGo HTML (sem chave, sempre funciona)
   const resp = await fetch(
-    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`,
-    { headers: { "Accept": "application/json", "X-Subscription-Token": key } }
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+    { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "text/html" }, signal: AbortSignal.timeout(15_000) }
   );
-  if (!resp.ok) throw new Error(`Brave Search API error: ${resp.status}`);
-  const data = await resp.json() as any;
-  return (data.web?.results ?? []).slice(0, count).map((r: any, i: number) =>
-    `**${i + 1}. ${r.title}**\n${r.url}\n${r.description ?? ""}`
-  ).join("\n\n");
+  if (!resp.ok) throw new Error(`DuckDuckGo HTTP ${resp.status}`);
+  const html = await resp.text();
+
+  const results: string[] = [];
+  const blockRe = /class="result__title"[\s\S]*?class="result__url"[^>]*>(.*?)<\/a>[\s\S]*?class="result__snippet">([\s\S]*?)<\/a>/g;
+  const titleRe = /class="result__a"[^>]*>(.*?)<\/a>/;
+  const blocks  = html.match(/<div class="result[^"]*result--web[\s\S]*?<\/article>/g) ?? [];
+
+  for (const block of blocks.slice(0, count)) {
+    const titleM   = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+    const urlM     = block.match(/class="result__url"[^>]*>([\s\S]*?)<\/a>/);
+    const snippetM = block.match(/class="result__snippet">([\s\S]*?)<\/a>/);
+    if (!titleM) continue;
+    const title   = titleM[1].replace(/<[^>]+>/g, "").trim();
+    const url     = urlM ? urlM[1].replace(/<[^>]+>/g, "").trim() : "";
+    const snippet = snippetM ? snippetM[1].replace(/<[^>]+>/g, "").trim() : "";
+    results.push(`**${results.length + 1}. ${title}**\n${url}\n${snippet}`);
+  }
+
+  return results.length ? results.join("\n\n") : `Sem resultados para: "${query}"`;
 }
 
 async function fetchUrl(url: string): Promise<string> {
@@ -129,7 +163,7 @@ Seja direto. Máximo ${max_steps} steps. Use computer_exec para operações no c
           break;
 
         case "web_search":
-          result = await braveSearch(step.query ?? step.description, 5);
+          result = await webSearch(step.query ?? step.description, 5);
           break;
 
         case "web_fetch":
