@@ -126,7 +126,7 @@ function openSetup(): void {
 <div style="font-size:20px;font-weight:700">Memory MCP</div>
 <div style="font-size:13px;color:%23888">Erro ao carregar setup (${code})<br>${desc}</div>
 <div style="font-size:11px;color:%23555;margin-top:8px;max-width:400px;word-break:break-all">${setupHtml}</div>
-<button onclick="window.electronAPI?.launch('https://ferramentas-memory-mcp-server.m5mfeg.easypanel.host')" style="margin-top:16px;padding:12px 28px;background:%236366f1;border:none;border-radius:8px;color:%23fff;cursor:pointer;font-size:14px;font-weight:600">Usar servidor padrão</button>
+<button onclick="openSetup()" style="margin-top:16px;padding:12px 28px;background:%236366f1;border:none;border-radius:8px;color:%23fff;cursor:pointer;font-size:14px;font-weight:600">Configurar servidor</button>
 </body></html>`);
   });
   setupWindow.on("closed", () => { setupWindow = null; });

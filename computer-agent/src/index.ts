@@ -5,7 +5,7 @@ import { dirname, resolve } from "path";
 import { hostname, platform, homedir } from "os";
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const SERVER_URL = process.env.MCP_SERVER_URL ?? "wss://ferramentas-memory-mcp-server.m5mfeg.easypanel.host";
+const SERVER_URL = process.env.MCP_SERVER_URL ?? "wss://seu-servidor.easypanel.host";
 const API_KEY    = process.env.MCP_API_KEY    ?? "";
 const AGENT_ID   = process.env.AGENT_ID       ?? hostname();
 const DEFAULT_CWD = process.env.DEFAULT_CWD   ?? homedir();
