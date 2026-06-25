@@ -7,6 +7,7 @@ import { logAudit } from "./audit.js";
 import OpenAI from "openai";
 import { openAiBreaker, withRetry } from "../services/circuit-breaker.service.js";
 import { cacheDel } from "../services/cache.service.js";
+import { broadcast } from "../ws.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -103,6 +104,60 @@ export function registerMemoryTools(server: McpServer) {
       }
 
       await logAudit(proj.id, "memory_search", { project, query, limit, type }, `${results.length} resultados`);
+
+      // Proactive push: verificar anchors que correspondem à query
+      setImmediate(async () => {
+        try {
+          const anchors = await (prisma as any).memoryAnchor.findMany({
+            where: { projectId: proj.id, isActive: true },
+            orderBy: { priority: "desc" },
+          });
+          if (!anchors.length) return;
+
+          const queryLower = query.toLowerCase();
+          const matchedMemoryIds = new Set<string>();
+          const matchedAnchorNames: string[] = [];
+
+          for (const anchor of anchors) {
+            let isMatch = false;
+            if (anchor.patternType === "KEYWORD") {
+              isMatch = queryLower.includes(anchor.pattern.toLowerCase());
+            } else if (anchor.patternType === "REGEX") {
+              try { isMatch = new RegExp(anchor.pattern, "i").test(query); } catch {}
+            } else if (anchor.patternType === "SEMANTIC" && results.length > 0) {
+              try {
+                const pEmb = await getEmbedding(anchor.pattern);
+                const qEmb = await getEmbedding(query);
+                const dot = qEmb.reduce((s: number, v: number, i: number) => s + v * pEmb[i], 0);
+                isMatch = dot > 0.72;
+              } catch {}
+            }
+            if (isMatch) {
+              anchor.memoryIds.forEach((id: string) => matchedMemoryIds.add(id));
+              matchedAnchorNames.push(anchor.name);
+              // Incrementar hit count
+              await (prisma as any).memoryAnchor.update({
+                where: { id: anchor.id },
+                data: { hitCount: { increment: 1 } },
+              }).catch(() => {});
+            }
+          }
+
+          if (matchedMemoryIds.size > 0) {
+            const proactiveMems = await prisma.memory.findMany({
+              where: { id: { in: [...matchedMemoryIds] } },
+              select: { id: true, title: true, type: true, importance: true, content: true },
+            });
+            broadcast("proactive_context", {
+              project,
+              query,
+              anchors: matchedAnchorNames,
+              memories: proactiveMems,
+              ts: Date.now(),
+            });
+          }
+        } catch {}
+      });
 
       const text = results.length === 0
         ? "Nenhuma memória encontrada para essa busca."

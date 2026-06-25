@@ -19,6 +19,9 @@ import BrainPage from "./pages/BrainPage";
 import BrainGraphPage from "./pages/BrainGraphPage";
 import JobsPage from "./pages/JobsPage";
 import ChatPage from "./pages/ChatPage";
+import AnchorsPage from "./pages/AnchorsPage";
+import SessionMonitorPage from "./pages/SessionMonitorPage";
+import TimelinePage from "./pages/TimelinePage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -50,6 +53,9 @@ export default function App() {
               <Route path="/brain-graph"    element={<BrainGraphPage />} />
               <Route path="/jobs"           element={<JobsPage />} />
               <Route path="/chat"           element={<ChatPage />} />
+              <Route path="/anchors"         element={<AnchorsPage />} />
+              <Route path="/session-monitor" element={<SessionMonitorPage />} />
+              <Route path="/timeline"        element={<TimelinePage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

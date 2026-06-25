@@ -11,6 +11,8 @@ import { registerBrainTools } from "./tools/brain.tools.js";
 import { registerBrain2Tools } from "./tools/brain2.tools.js";
 import { registerCreTools } from "./tools/brain_cre.tools.js";
 import { registerSurrealTools } from "./tools/brain_surreal.tools.js";
+import { registerAnchorTools } from "./tools/anchor.tools.js";
+import { registerGitTools } from "./tools/git.tools.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -27,6 +29,8 @@ export function createMcpServer(): McpServer {
   registerBrain2Tools(server);
   registerCreTools(server);
   registerSurrealTools(server);
+  registerAnchorTools(server);
+  registerGitTools(server);
 
   return server;
 }

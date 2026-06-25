@@ -27,6 +27,9 @@ const Icon = {
   chat:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H6l-4 3V5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>,
   jobs:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 6v4l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   pulse:      <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M2 10h3l2-5 3 10 2-7 2 4 2-2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  anchor:     <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M10 3v2M10 15v2M3 10h2M15 10h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M5.5 5.5l1.5 1.5M13 13l1.5 1.5M5.5 14.5l1.5-1.5M13 7l1.5-1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+  monitor:    <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><rect x="2" y="3" width="16" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 17h6M10 14v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="7" cy="8.5" r="1" fill="currentColor"/><path d="M9 8.5h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="7" cy="11" r="1" fill="currentColor"/><path d="M9 11h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+  timeline:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M3 16V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M3 14h3l2-4 3 6 2-5 2 3h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
 };
 
 const NAV = [
@@ -35,6 +38,9 @@ const NAV = [
   { to: "/brain",          label: "Brain",       icon: Icon.brain,     badge: "hot"  },
   { to: "/brain-graph",    label: "Brain Graph", icon: Icon.graph,     badge: "hot"  },
   { to: "/chat",           label: "Chat Brain",  icon: Icon.chat,      badge: "new"  },
+  { to: "/anchors",        label: "Anchors",     icon: Icon.anchor,   badge: "new"  },
+  { to: "/session-monitor", label: "Monitor",   icon: Icon.monitor,  badge: "live" },
+  { to: "/timeline",       label: "Timeline",    icon: Icon.timeline, badge: null   },
   { to: "/jobs",           label: "Jobs",        icon: Icon.jobs,      badge: null   },
   { to: "/search",         label: "Busca",       icon: Icon.search,    badge: null   },
   { to: "/projects",       label: "Projetos",    icon: Icon.projects,  badge: null   },

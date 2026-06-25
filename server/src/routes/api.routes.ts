@@ -676,6 +676,146 @@ apiRoutes.get("/search", async (req, res) => {
   res.json({ memories });
 });
 
+// ── Memory Anchors ────────────────────────────────────────────────────────────
+apiRoutes.get("/projects/:slug/anchors", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+    const anchors = await (prisma as any).memoryAnchor.findMany({
+      where: { projectId: proj.id },
+      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+    });
+    res.json(anchors);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.post("/projects/:slug/anchors", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+    const { name, description, pattern, patternType, memoryIds, priority } = req.body;
+    const anchor = await (prisma as any).memoryAnchor.create({
+      data: { projectId: proj.id, name, description, pattern, patternType: patternType ?? "KEYWORD", memoryIds: memoryIds ?? [], priority: priority ?? 3 },
+    });
+    broadcast("refresh", { resource: "anchor", projectSlug: req.params.slug });
+    res.status(201).json(anchor);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.patch("/anchors/:id", async (req, res) => {
+  try {
+    const { name, description, pattern, patternType, memoryIds, priority, isActive } = req.body;
+    const anchor = await (prisma as any).memoryAnchor.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name        !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(pattern     !== undefined && { pattern }),
+        ...(patternType !== undefined && { patternType }),
+        ...(memoryIds   !== undefined && { memoryIds }),
+        ...(priority    !== undefined && { priority }),
+        ...(isActive    !== undefined && { isActive }),
+      },
+    });
+    broadcast("refresh", { resource: "anchor" });
+    res.json(anchor);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.delete("/anchors/:id", async (req, res) => {
+  try {
+    await (prisma as any).memoryAnchor.delete({ where: { id: req.params.id } });
+    broadcast("refresh", { resource: "anchor" });
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Brain Timeline ─────────────────────────────────────────────────────────────
+apiRoutes.get("/projects/:slug/timeline", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+    const days = Math.min(Math.max(1, Number(req.query.days) || 90), 365);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Criações por dia
+    const createdByDay = await prisma.$queryRaw<{ day: Date; type: string; count: bigint }[]>`
+      SELECT DATE_TRUNC('day', created_at) AS day, type::text, COUNT(*) AS count
+      FROM memories
+      WHERE project_id = ${proj.id} AND created_at >= ${since}
+      GROUP BY day, type
+      ORDER BY day ASC
+    `;
+
+    // Total histórico de memórias criadas por semana (para linha de crescimento)
+    const growthByWeek = await prisma.$queryRaw<{ week: Date; count: bigint }[]>`
+      SELECT DATE_TRUNC('week', created_at) AS week, COUNT(*) AS count
+      FROM memories
+      WHERE project_id = ${proj.id}
+      GROUP BY week
+      ORDER BY week ASC
+    `;
+
+    // Marcos importantes: memórias com importância 5 no período
+    const milestones = await prisma.memory.findMany({
+      where: { projectId: proj.id, importance: 5, createdAt: { gte: since } },
+      select: { id: true, title: true, type: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    // Atividade de acesso por dia (acesso = uso)
+    const accessByDay = await prisma.$queryRaw<{ day: Date; count: bigint }[]>`
+      SELECT DATE_TRUNC('day', accessed_at) AS day, COUNT(*) AS count
+      FROM memory_access_logs
+      WHERE project_id = ${proj.id} AND accessed_at >= ${since}
+      GROUP BY day
+      ORDER BY day ASC
+    `;
+
+    // Totais gerais
+    const [totalNow, totalThen] = await Promise.all([
+      prisma.memory.count({ where: { projectId: proj.id } }),
+      prisma.memory.count({ where: { projectId: proj.id, createdAt: { lt: since } } }),
+    ]);
+
+    res.json({
+      project: { name: proj.name, slug: proj.slug, color: proj.color },
+      period: { days, since: since.toISOString() },
+      totals: { now: totalNow, atStart: totalThen, created: totalNow - totalThen },
+      createdByDay: createdByDay.map(r => ({
+        day: r.day.toISOString().split("T")[0],
+        type: r.type,
+        count: Number(r.count),
+      })),
+      growthByWeek: growthByWeek.map(r => ({
+        week: r.week.toISOString().split("T")[0],
+        count: Number(r.count),
+      })),
+      milestones: milestones.map(m => ({
+        id: m.id,
+        title: m.title,
+        type: m.type,
+        date: m.createdAt.toISOString().split("T")[0],
+      })),
+      accessByDay: accessByDay.map(r => ({
+        day: r.day.toISOString().split("T")[0],
+        count: Number(r.count),
+      })),
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // ── Audit Log ─────────────────────────────────────────────────────────────────
 apiRoutes.get("/audit-logs", async (req, res) => {
   const { projectSlug, limit = "200" } = req.query as { projectSlug?: string; limit?: string };

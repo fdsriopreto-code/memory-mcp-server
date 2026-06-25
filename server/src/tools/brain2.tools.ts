@@ -570,4 +570,81 @@ export function registerBrain2Tools(server: McpServer) {
       return { content: [{ type: "text" as const, text: `# ✅ Consolidação concluída\n\n**[${consolidated.type}] ${finalTitle}** imp:${maxImportance}/5\n**ID**: \`${newMem.id}\`\n**${memories.length} memórias originais deletadas** | ${newLinks.length} links migrados\n\n${consolidated.content}` }] };
     }
   );
+
+  // ── Brain Time Travel ─────────────────────────────────────────────────────────
+  server.tool(
+    "brain_time_travel",
+    "Reconstrói o estado do cérebro em um ponto específico no tempo — mostra quais memórias existiam e o que elas diziam naquela data. Útil para entender como o conhecimento do projeto evoluiu.",
+    {
+      project: z.string().describe("Slug do projeto"),
+      at_date: z.string().describe("Data para viagem no tempo (ex: '2026-01-15', '2026-06-01T10:00:00Z')"),
+    },
+    async ({ project, at_date }) => {
+      const proj = await prisma.project.findUnique({ where: { slug: project } });
+      if (!proj) return { content: [{ type: "text" as const, text: `Projeto "${project}" não encontrado.` }] };
+
+      const targetDate = new Date(at_date);
+      if (isNaN(targetDate.getTime())) {
+        return { content: [{ type: "text" as const, text: `Data inválida: "${at_date}". Use formato ISO (ex: 2026-01-15).` }] };
+      }
+
+      // Memórias que existiam nessa data
+      const memories = await prisma.memory.findMany({
+        where: { projectId: proj.id, createdAt: { lte: targetDate } },
+        orderBy: [{ importance: "desc" }],
+        select: { id: true, title: true, content: true, type: true, importance: true, isPinned: true, createdAt: true },
+      });
+
+      if (memories.length === 0) {
+        return { content: [{ type: "text" as const, text: `Nenhuma memória existia em ${targetDate.toLocaleDateString("pt-BR")} no projeto "${proj.name}".` }] };
+      }
+
+      // Para cada memória, buscar a versão mais recente antes da data alvo
+      const memoriesWithHistory = await Promise.all(
+        memories.map(async (m) => {
+          const version = await prisma.$queryRaw<{content: string; title: string; importance: number; changed_at: Date}[]>`
+            SELECT content, title, importance, changed_at
+            FROM memory_versions
+            WHERE memory_id = ${m.id}
+              AND changed_at <= ${targetDate}
+            ORDER BY changed_at DESC
+            LIMIT 1
+          `.catch(() => []);
+
+          // Se há uma versão anterior à data alvo, usar ela; caso contrário usar conteúdo atual
+          if (version.length > 0) {
+            return { ...m, content: version[0].content, title: version[0].title, importance: version[0].importance, _wasModified: true };
+          }
+          return { ...m, _wasModified: false };
+        })
+      );
+
+      const dateStr = targetDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      const nowCount = await prisma.memory.count({ where: { projectId: proj.id } });
+      const diff = nowCount - memories.length;
+
+      let text = `# ⏳ Time Travel — ${proj.name}\n`;
+      text += `**Data**: ${dateStr}\n`;
+      text += `**Memórias nessa época**: ${memories.length} (hoje: ${nowCount}, ${diff > 0 ? `+${diff}` : diff} desde então)\n\n`;
+
+      const pinned = memoriesWithHistory.filter(m => m.isPinned);
+      const regular = memoriesWithHistory.filter(m => !m.isPinned);
+
+      if (pinned.length > 0) {
+        text += `## 📌 Memórias pinadas (${pinned.length})\n\n`;
+        text += pinned.map(m =>
+          `### [${m.type}] ${m.title}${m._wasModified ? " _(versão anterior)_" : ""} imp:${m.importance}/5\n${m.content}`
+        ).join("\n\n---\n\n");
+        text += "\n\n";
+      }
+
+      text += `## 💡 Demais memórias (${regular.length})\n\n`;
+      text += regular.map(m =>
+        `### [${m.type}] ${m.title}${m._wasModified ? " _(versão anterior)_" : ""} imp:${m.importance}/5\n${m.content.slice(0, 500)}${m.content.length > 500 ? "…" : ""}`
+      ).join("\n\n---\n\n");
+
+      await logAudit(proj.id, "brain_time_travel", { project, at_date }, `${memories.length} memórias em ${dateStr}`);
+      return { content: [{ type: "text" as const, text }] };
+    }
+  );
 }
