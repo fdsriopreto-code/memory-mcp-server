@@ -1,0 +1,67 @@
+# Container all-in-one: Postgres (pgvector) + Redis + Node.js
+# Deploy em qualquer lugar como UM serviço só.
+# Usuário só precisa definir: ADMIN_EMAIL, ADMIN_PASSWORD, OPENAI_API_KEY
+
+FROM pgvector/pgvector:pg16 AS base
+
+# ── Ferramentas do sistema ───────────────────────────────────────────────────
+RUN apt-get update -qq && apt-get install -y -qq \
+    curl ca-certificates gnupg redis-server supervisor \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Build frontend ────────────────────────────────────────────────────────────
+FROM node:22-alpine AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package*.json ./
+RUN npm ci --prefer-offline
+COPY frontend/ ./
+RUN npm run build
+
+# ── Build server ──────────────────────────────────────────────────────────────
+FROM node:22-alpine AS server-builder
+RUN apk add --no-cache openssl
+WORKDIR /app
+COPY server/package.json ./
+RUN npm install
+COPY server/ .
+RUN npx prisma generate
+RUN npm run build
+
+# ── Imagem final all-in-one ───────────────────────────────────────────────────
+FROM base
+
+WORKDIR /app
+
+# Copia server e frontend já buildados
+COPY --from=server-builder /app/dist         ./dist
+COPY --from=server-builder /app/node_modules ./node_modules
+COPY --from=server-builder /app/prisma       ./prisma
+COPY server/package.json ./
+COPY --from=frontend-builder /frontend/dist  ./frontend/dist
+
+# Configurações Redis
+RUN mkdir -p /var/run/redis
+COPY docker/redis.conf /etc/redis/redis-standalone.conf
+
+# Configurações supervisord (gerencia Postgres + Redis + Node)
+COPY docker/supervisord.conf /etc/supervisor/conf.d/memory-mcp.conf
+
+# Script de inicialização
+COPY docker/entrypoint-standalone.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Volume para dados persistentes (Postgres data + segredos gerados)
+VOLUME ["/var/lib/postgresql/data", "/data"]
+
+ENV SERVE_FRONTEND=true
+ENV FRONTEND_DIST=/app/frontend/dist
+ENV NODE_ENV=production
+
+EXPOSE 3100
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=8 \
+  CMD curl -f http://localhost:3100/health || exit 1
+
+CMD ["/entrypoint.sh"]

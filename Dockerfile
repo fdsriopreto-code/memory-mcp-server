@@ -1,3 +1,8 @@
+# Container all-in-one: PostgreSQL (pgvector) + Redis + Node.js
+# Deploy como UM serviço só. Usuário precisa definir apenas:
+#   ADMIN_EMAIL, ADMIN_PASSWORD, OPENAI_API_KEY
+# Tudo mais (banco, redis, senhas, JWT) é automático.
+
 # ── Stage 1: Build Frontend ───────────────────────────────────────────────────
 FROM node:22-alpine AS frontend-builder
 WORKDIR /frontend
@@ -16,28 +21,37 @@ COPY server/ .
 RUN npx prisma generate
 RUN npm run build
 
-# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
-FROM node:22-alpine
-RUN apk add --no-cache openssl curl
+# ── Stage 3: Runtime all-in-one ───────────────────────────────────────────────
+FROM pgvector/pgvector:pg16
+
+RUN apt-get update -qq && apt-get install -y -qq \
+    curl redis-server openssl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=server-builder /app/dist         ./dist
 COPY --from=server-builder /app/node_modules ./node_modules
 COPY --from=server-builder /app/prisma       ./prisma
 COPY server/package.json ./
-
-# Frontend build — acessível em /app/frontend/dist
 COPY --from=frontend-builder /frontend/dist  ./frontend/dist
 
-# Backend serve o frontend na mesma URL
+COPY docker/redis.conf          /etc/redis/redis-standalone.conf
+COPY docker/entrypoint-standalone.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+VOLUME ["/var/lib/postgresql/data", "/data"]
+
 ENV SERVE_FRONTEND=true
 ENV FRONTEND_DIST=/app/frontend/dist
+ENV NODE_ENV=production
+ENV PORT=3100
 
-# Script de startup com retry no banco
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+EXPOSE 3100
 
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \
-  CMD curl -f http://localhost:${PORT:-3100}/health || exit 1
+HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=10 \
+  CMD curl -f http://localhost:${PORT}/health || exit 1
 
-CMD ["/docker-entrypoint.sh"]
+CMD ["/entrypoint.sh"]
