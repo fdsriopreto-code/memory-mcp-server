@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "tsc && electron .",
     "build": "tsc",
-    "dist:win": "electron-builder --win --x64",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:win":   "electron-builder --win --x64",
+    "dist:mac":   "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "dist:all":   "electron-builder --win --mac --linux"
   },
   "dependencies": {
     "electron": "^31.0.0"
@@ -28,41 +29,22 @@
     "files": [
       "dist/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "../server/dist",
-        "to": "server/dist"
-      },
-      {
-        "from": "../server/node_modules",
-        "to": "server/node_modules"
-      },
-      {
-        "from": "../server/prisma",
-        "to": "server/prisma"
-      },
-      {
-        "from": "../frontend/dist",
-        "to": "frontend/dist"
-      }
-    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
-      "icon": "assets/icon.ico"
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
     },
     "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.icns"
+      "target": "dmg"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
+      "target": "AppImage"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": null,
+      "uninstallerIcon": null
     }
   }
 }

@@ -1,0 +1,138 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - "v*"          # dispara em: git tag v1.0.0 && git push --tags
+  workflow_dispatch:  # ou manual pelo GitHub Actions UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install dependencies
+        working-directory: electron
+        run: npm install
+
+      - name: Build TypeScript
+        working-directory: electron
+        run: npm run build
+
+      - name: Build Windows installer
+        working-directory: electron
+        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-mcp-windows
+          path: electron/release/*.exe
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install dependencies
+        working-directory: electron
+        run: npm install
+
+      - name: Build TypeScript
+        working-directory: electron
+        run: npm run build
+
+      - name: Build macOS DMG
+        working-directory: electron
+        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-mcp-mac
+          path: electron/release/*.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install dependencies
+        working-directory: electron
+        run: npm install
+
+      - name: Build TypeScript
+        working-directory: electron
+        run: npm run build
+
+      - name: Build Linux AppImage
+        working-directory: electron
+        run: npm run dist:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-mcp-linux
+          path: electron/release/*.AppImage
+
+  release:
+    needs: [build-windows, build-mac, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            memory-mcp-windows/*.exe
+            memory-mcp-mac/*.dmg
+            memory-mcp-linux/*.AppImage
+          body: |
+            ## Memory MCP Desktop App
+
+            ### Download
+            - **Windows**: `Memory-MCP-Setup-*.exe`
+            - **macOS**: `Memory-MCP-*.dmg`
+            - **Linux**: `Memory-MCP-*.AppImage`
+
+            ### Como usar
+            1. Baixe o instalador para o seu sistema
+            2. Instale normalmente
+            3. Na primeira execução, o app conecta automaticamente ao servidor
+            4. Para mudar o servidor: clique no ícone na bandeja → Configuracoes
+
+            ### Configuração (opcional)
+            O arquivo `config.json` fica em:
+            - Windows: `%APPDATA%\memory-mcp-desktop\config.json`
+            - macOS: `~/Library/Application Support/memory-mcp-desktop/config.json`
+            - Linux: `~/.config/memory-mcp-desktop/config.json`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
