@@ -87,3 +87,49 @@ body {
 /* ── Transitions ────────────────────────────────────────────────────────────── */
 * { transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease; }
 canvas, svg * { transition: none !important; }
+
+/* ── Mobile responsive global ───────────────────────────────────────────────── */
+
+/* Tabelas: scroll horizontal em vez de overflow */
+table { width: 100%; border-collapse: collapse; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Evita que qualquer elemento ultrapasse a tela no mobile */
+img, video, iframe, pre { max-width: 100%; }
+pre { overflow-x: auto; }
+
+/* Touch-friendly tap targets mínimos */
+@media (max-width: 767px) {
+  button, a, [role="button"] { min-height: 36px; }
+
+  /* Padding de página menor no mobile */
+  .max-w-5xl.mx-auto { padding-left: 1rem !important; padding-right: 1rem !important; }
+
+  /* Grids colapsam para 1 coluna */
+  .sm\:grid-cols-2, .sm\:grid-cols-3 { grid-template-columns: 1fr !important; }
+
+  /* Modais: full width */
+  [role="dialog"], .modal { width: 100vw !important; max-width: 100vw !important; border-radius: 1rem 1rem 0 0 !important; }
+
+  /* Fontes um pouco maiores para leitura */
+  .text-\[10px\] { font-size: 11px !important; }
+  .text-\[9px\]  { font-size: 10px !important; }
+}
+
+/* dvh para altura real em mobile (barra de endereço do browser) */
+@supports (height: 100dvh) {
+  .h-screen { height: 100dvh !important; }
+  .min-h-screen { min-height: 100dvh !important; }
+}
+
+/* ── Chat específico ─────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Cabeçalhos dos cards menores */
+  .chat-header h1 { font-size: 1rem !important; }
+
+  /* Textarea do chat: 2 linhas em vez de 3 */
+  .chat-textarea { rows: 2; min-height: 52px; }
+
+  /* Tool cards: texto menor */
+  .tool-card { font-size: 11px; }
+}

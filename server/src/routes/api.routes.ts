@@ -496,12 +496,38 @@ apiRoutes.post("/projects/:slug/brain/chat", async (req, res) => {
     const { query } = req.body as { query: string };
     if (!query?.trim()) { res.status(400).json({ error: "Query obrigatória" }); return; }
 
+    const { history = [] } = req.body as { history?: { role: "user"|"assistant"; content: string }[] };
     const { agentChat } = await import("../services/agentic-chat.service.js");
-    const result = await agentChat(proj.id, proj.slug, query.trim());
+    const result = await agentChat(proj.id, proj.slug, query.trim(), history);
     res.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     res.status(500).json({ error: msg });
+  }
+});
+
+// ── TTS — OpenAI Text-to-Speech ───────────────────────────────────────────────
+apiRoutes.post("/tts", async (req, res) => {
+  try {
+    const { text, voice = "nova" } = req.body as { text: string; voice?: string };
+    if (!text?.trim()) { res.status(400).json({ error: "text obrigatório" }); return; }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) { res.status(503).json({ error: "OPENAI_API_KEY não configurada" }); return; }
+    const OpenAI = (await import("openai")).default;
+    const openai = new OpenAI({ apiKey });
+    const audio  = await openai.audio.speech.create({
+      model: "tts-1",
+      input: text.slice(0, 4096),
+      voice: voice as "nova" | "alloy" | "echo" | "fable" | "onyx" | "shimmer",
+      response_format: "mp3",
+    });
+    const buffer = Buffer.from(await audio.arrayBuffer());
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader("Cache-Control", "private, max-age=600");
+    res.end(buffer);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
 

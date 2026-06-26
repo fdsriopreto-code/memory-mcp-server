@@ -180,8 +180,10 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   }
 }
 
+export type HistoryMessage = { role: "user" | "assistant"; content: string };
+
 // ── Main agentic chat ─────────────────────────────────────────────────────────
-export async function agentChat(projectId: string, projectSlug: string, query: string): Promise<AgentChatResult> {
+export async function agentChat(projectId: string, projectSlug: string, query: string, history: HistoryMessage[] = []): Promise<AgentChatResult> {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) throw new Error("OPENAI_API_KEY não configurada");
 
@@ -234,8 +236,10 @@ DIRETRIZES:
 - Quando criar algo (tarefa/memória), confirme o que foi criado`;
 
   // 4. Agentic loop (máx 5 rounds de tool calls)
+  const recentHistory = history.slice(-10); // últimas 10 trocas
   const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string; name?: string }[] = [
     { role: "system", content: systemPrompt },
+    ...recentHistory.map(h => ({ role: h.role, content: h.content })),
     { role: "user",   content: query },
   ];
 
