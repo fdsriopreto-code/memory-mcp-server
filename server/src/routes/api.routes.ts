@@ -1138,6 +1138,156 @@ apiRoutes.post("/computer-exec", async (req, res) => {
   }
 });
 
+// ── Brain Digest & Pulse ──────────────────────────────────────────────────────
+apiRoutes.get("/projects/:slug/digest/latest", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+    const digest = await (prisma as any).brainDigest.findFirst({
+      where: { projectId: proj.id },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(digest ?? null);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.get("/projects/:slug/digest/history", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+    const digests = await (prisma as any).brainDigest.findMany({
+      where: { projectId: proj.id },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      select: { id: true, period: true, type: true, healthScore: true, memoriesIn: true, newSyntheses: true, createdAt: true, summary: true },
+    });
+    res.json(digests);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.get("/projects/:slug/pulse", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+
+    const day7  = new Date(Date.now() - 7  * 86_400_000);
+    const day30 = new Date(Date.now() - 30 * 86_400_000);
+
+    const [hotRows, totalMems, synthMems, recentMems] = await Promise.all([
+      prisma.$queryRaw<{ memory_id: string; cnt: bigint }[]>`
+        SELECT memory_id, COUNT(*) AS cnt FROM memory_access_logs
+        WHERE project_id = ${proj.id} AND accessed_at >= ${day7}
+        GROUP BY memory_id ORDER BY cnt DESC LIMIT 8
+      `,
+      prisma.memory.count({ where: { projectId: proj.id } }),
+      prisma.memory.count({ where: { projectId: proj.id, type: "SYNTHESIS" as never } }),
+      prisma.memory.count({ where: { projectId: proj.id, createdAt: { gte: day7 } } }),
+    ]);
+
+    const hotIds  = hotRows.map(r => r.memory_id);
+    const hotMems = hotIds.length
+      ? await prisma.memory.findMany({
+          where: { id: { in: hotIds } },
+          select: { id: true, title: true, type: true, importance: true, tags: true },
+        })
+      : [];
+
+    const coldMems = await prisma.memory.findMany({
+      where: {
+        projectId: proj.id, importance: { gte: 3 },
+        OR: [{ accessedAt: null }, { accessedAt: { lt: day30 } }],
+        type: { not: "SYNTHESIS" as never },
+      },
+      select: { id: true, title: true, type: true, importance: true },
+      take: 8,
+    });
+
+    const [validated, deprecated] = await Promise.all([
+      prisma.memory.count({ where: { projectId: proj.id, epistemicStatus: "VALIDATED" as never } }),
+      prisma.memory.count({ where: { projectId: proj.id, epistemicStatus: "DEPRECATED" as never } }),
+    ]);
+
+    const withEmb = await prisma.$queryRaw<[{ c: bigint }]>`
+      SELECT COUNT(*) AS c FROM memories WHERE project_id = ${proj.id} AND embedding IS NOT NULL
+    `;
+    const embCount = Number((withEmb as any)[0]?.c ?? 0);
+    const healthScore = totalMems === 0 ? 0 : Math.max(0, Math.min(100, Math.round(
+      (validated / totalMems) * 35 +
+      (1 - deprecated / totalMems) * 20 +
+      (embCount / totalMems) * 25 +
+      Math.min(20, hotMems.length * 2.5) -
+      Math.min(15, coldMems.length)
+    )));
+
+    res.json({
+      healthScore,
+      total: totalMems,
+      syntheses: synthMems,
+      recentWeek: recentMems,
+      validated,
+      deprecated,
+      withEmbedding: embCount,
+      hot: hotMems.map((m, i) => ({ ...m, accessCount: Number(hotRows[i]?.cnt ?? 0) })),
+      cold: coldMems,
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.post("/projects/:slug/synthesize", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+    res.json({ ok: true, message: "Síntese iniciada em background" });
+    const { triggerSynthesis } = await import("../workers/synthesis.scheduler.js");
+    triggerSynthesis(proj.id).catch(e => console.error("[synthesis] trigger falhou:", e));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── AI Config (chaves e modelos por role) ─────────────────────────────────────
+apiRoutes.get("/ai-config", async (_req, res) => {
+  try {
+    const configs = await (prisma as any).aIConfig.findMany({ orderBy: { role: "asc" } });
+    res.json(configs.map((c: any) => ({ ...c, apiKey: c.apiKey ? "***" : "" })));
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.put("/ai-config/:role", async (req, res) => {
+  try {
+    const { provider, model, apiKey, isActive } = req.body as {
+      provider: string; model: string; apiKey?: string; isActive?: boolean;
+    };
+    const data: Record<string, unknown> = { provider, model, isActive: isActive ?? true };
+    if (apiKey && apiKey !== "***") data.apiKey = encrypt(apiKey);
+    const cfg = await (prisma as any).aIConfig.upsert({
+      where: { role: req.params.role },
+      create: { role: req.params.role, provider, model, apiKey: encrypt(apiKey ?? "") },
+      update: data,
+    });
+    res.json({ ...cfg, apiKey: "***" });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.delete("/ai-config/:role", async (req, res) => {
+  try {
+    await (prisma as any).aIConfig.delete({ where: { role: req.params.role } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "Config não encontrada" });
+  }
+});
+
 // POST /api/agent-run — chamado pela AgentRunPage no frontend (fire and forget, progresso via WebSocket)
 apiRoutes.post("/agent-run", async (req, res) => {
   try {

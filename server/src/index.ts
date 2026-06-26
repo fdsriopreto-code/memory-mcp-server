@@ -15,6 +15,7 @@ import { patchConsole } from "./logger.js";
 import { apiRateLimit } from "./middleware/rate-limit.middleware.js";
 import { initBrainWorker } from "./workers/brain.worker.js";
 import { initDecayScheduler } from "./workers/decay.scheduler.js";
+import { initSynthesisScheduler } from "./workers/synthesis.scheduler.js";
 
 patchConsole();
 
@@ -40,7 +41,7 @@ app.use((req, _res, next) => {
   const origin = req.headers.origin ?? "*";
   _res.setHeader("Access-Control-Allow-Origin", origin);
   _res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id");
-  _res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, PATCH, OPTIONS");
+  _res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, PATCH, PUT, OPTIONS");
   if (req.method === "OPTIONS") { _res.status(204).end(); return; }
   next();
 });
@@ -117,6 +118,7 @@ async function start() {
   });
   initBrainWorker();
   initDecayScheduler();
+  initSynthesisScheduler();
 }
 
 start().catch((e) => { console.error(e); process.exit(1); });

@@ -28,6 +28,8 @@ import BrainHealthPage from "./pages/BrainHealthPage";
 import AgentRunPage from "./pages/AgentRunPage";
 import ComputerPage from "./pages/ComputerPage";
 import HelpPage from "./pages/HelpPage";
+import WeeklyDigestPage from "./pages/WeeklyDigestPage";
+import AIConfigPage from "./pages/AIConfigPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -68,6 +70,8 @@ export default function App() {
               <Route path="/agent-run" element={<AgentRunPage />} />
               <Route path="/computer"  element={<ComputerPage />} />
               <Route path="/help"      element={<HelpPage />} />
+              <Route path="/digest"   element={<WeeklyDigestPage />} />
+              <Route path="/ai-config" element={<AIConfigPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

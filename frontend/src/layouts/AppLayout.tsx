@@ -38,6 +38,8 @@ const Icon = {
   help:       <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 14v.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><path d="M10 11c0-1.5 2.5-1.5 2.5-3.5A2.5 2.5 0 007.5 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   menu:       <svg fill="none" viewBox="0 0 20 20" className="w-5 h-5"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   close:      <svg fill="none" viewBox="0 0 20 20" className="w-5 h-5"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+  digest:     <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M10 3c-1.5 0-2.8.7-3.5 1.8-.6-.3-1.3-.3-2 0C3.5 5.5 3 6.7 3 8c0 1 .4 2 1 2.6.2 1.4 1.1 2.5 2.3 3.1L7 17h6l.7-3.3c1.2-.6 2.1-1.7 2.3-3.1.6-.6 1-1.6 1-2.6 0-1.3-.5-2.5-1.5-3.2-.7-.3-1.4-.3-2 0C12.8 3.7 11.5 3 10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M8 10h4M9 12h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
+  aiconfig:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.05 5.05l1.42 1.42M13.54 13.54l1.41 1.41M5.05 14.95l1.42-1.42M13.54 6.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="10" r="5" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2"/></svg>,
 };
 
 const NAV = [
@@ -63,6 +65,8 @@ const NAV = [
   { to: "/audit",           label: "Atividade",   icon: Icon.audit,     badge: "live" },
   { to: "/logs",            label: "Logs",        icon: Icon.logs,      badge: null   },
   { to: "/services",        label: "Serviços",    icon: Icon.services,  badge: null   },
+  { to: "/digest",          label: "Brain Digest", icon: Icon.digest,   badge: "new"  },
+  { to: "/ai-config",      label: "Config IA",    icon: Icon.aiconfig, badge: null   },
   { to: "/help",            label: "Ajuda",       icon: Icon.help,      badge: null   },
 ];
 
