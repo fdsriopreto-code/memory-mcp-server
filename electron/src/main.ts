@@ -1,10 +1,11 @@
 import {
   app, BrowserWindow, Tray, Menu, nativeImage,
-  shell, ipcMain
+  shell, ipcMain, dialog
 } from "electron";
 import * as path  from "path";
 import * as fs    from "fs";
 import * as cp    from "child_process";
+import * as https from "https";
 
 // ── Paths ──────────────────────────────────────────────────────────────────────
 const CONFIG_PATH  = path.join(app.getPath("userData"), "config.json");
@@ -49,6 +50,60 @@ let setupWindow: BrowserWindow | null = null;
 let tray:        Tray          | null = null;
 let serverProc:  cp.ChildProcess | null = null;
 let isQuitting   = false;
+
+type UpdateInfo = { hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string; releaseUrl: string; releaseNotes: string };
+let cachedUpdateInfo: UpdateInfo | null = null;
+
+// ── Auto Update (GitHub Releases) ─────────────────────────────────────────────
+const GITHUB_REPO = "fdsriopreto-code/memory-mcp-server";
+
+function fetchJson(url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: { "User-Agent": "memory-mcp-desktop", "Accept": "application/json" },
+    }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => data += chunk);
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(10_000, () => { req.destroy(); reject(new Error("timeout")); });
+  });
+}
+
+function compareVersions(a: string, b: string): number {
+  const pa = a.replace(/^v/, "").split(".").map(Number);
+  const pb = b.replace(/^v/, "").split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pb[i] ?? 0) - (pa[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function checkForUpdateImpl(): Promise<UpdateInfo> {
+  if (cachedUpdateInfo) return cachedUpdateInfo;
+  const current = app.getVersion();
+  try {
+    const release = await fetchJson(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`) as {
+      tag_name: string;
+      html_url: string;
+      body: string;
+      assets: { name: string; browser_download_url: string }[];
+    };
+    const latest = release.tag_name ?? "0.0.0";
+    const hasUpdate = compareVersions(current, latest) > 0;
+    const winAsset = release.assets?.find(a => a.name.endsWith(".exe"));
+    const downloadUrl = winAsset?.browser_download_url ?? release.html_url;
+    cachedUpdateInfo = { hasUpdate, currentVersion: current, latestVersion: latest, downloadUrl, releaseUrl: release.html_url, releaseNotes: (release.body ?? "").slice(0, 500) };
+  } catch {
+    cachedUpdateInfo = { hasUpdate: false, currentVersion: current, latestVersion: current, downloadUrl: "", releaseUrl: "", releaseNotes: "" };
+  }
+  return cachedUpdateInfo;
+}
 
 // ── Tray ───────────────────────────────────────────────────────────────────────
 function createTray(): void {
@@ -298,6 +353,26 @@ function registerIpc(): void {
     setupWindow?.close();
     createMainWindow(url);
   });
+
+  ipcMain.handle("get-app-version", () => app.getVersion());
+
+  ipcMain.handle("check-for-update", async () => {
+    return checkForUpdateImpl();
+  });
+
+  ipcMain.handle("install-update", async () => {
+    const info = await checkForUpdateImpl();
+    if (!info.hasUpdate) return;
+    const { response } = await dialog.showMessageBox({
+      type:    "info",
+      title:   "Atualização disponível",
+      message: `Memory MCP ${info.latestVersion} está disponível!`,
+      detail:  `Versão atual: ${info.currentVersion}\n\n${info.releaseNotes}\n\nO instalador será aberto no navegador.`,
+      buttons: ["Baixar agora", "Depois"],
+      defaultId: 0,
+    });
+    if (response === 0) shell.openExternal(info.downloadUrl || info.releaseUrl);
+  });
 }
 
 // ── App entry ──────────────────────────────────────────────────────────────────
@@ -341,6 +416,9 @@ async function main() {
 
   app.on("activate",            () => { mainWindow?.show(); });
   app.on("window-all-closed",   () => { if (isQuitting) app.quit(); });
+
+  // Check for updates in background after 3s
+  setTimeout(() => checkForUpdateImpl().catch(() => {}), 3_000);
 }
 
 app.on("before-quit", () => {
