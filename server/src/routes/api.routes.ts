@@ -493,12 +493,15 @@ apiRoutes.post("/projects/:slug/brain/chat", async (req, res) => {
   try {
     const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
     if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
-    const { query } = req.body as { query: string };
+    const { query, history = [], attachments = [] } = req.body as {
+      query: string;
+      history?: { role: "user"|"assistant"; content: string }[];
+      attachments?: { type: "image"; mimeType: string; data: string }[];
+    };
     if (!query?.trim()) { res.status(400).json({ error: "Query obrigatória" }); return; }
 
-    const { history = [] } = req.body as { history?: { role: "user"|"assistant"; content: string }[] };
     const { agentChat } = await import("../services/agentic-chat.service.js");
-    const result = await agentChat(proj.id, proj.slug, query.trim(), history);
+    const result = await agentChat(proj.id, proj.slug, query.trim(), history, attachments);
     res.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

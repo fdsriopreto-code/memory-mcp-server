@@ -181,9 +181,14 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 }
 
 export type HistoryMessage = { role: "user" | "assistant"; content: string };
+export type ChatAttachment = { type: "image"; mimeType: string; data: string };
 
 // ── Main agentic chat ─────────────────────────────────────────────────────────
-export async function agentChat(projectId: string, projectSlug: string, query: string, history: HistoryMessage[] = []): Promise<AgentChatResult> {
+export async function agentChat(
+  projectId: string, projectSlug: string, query: string,
+  history: HistoryMessage[] = [],
+  attachments: ChatAttachment[] = []
+): Promise<AgentChatResult> {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) throw new Error("OPENAI_API_KEY não configurada");
 
@@ -236,11 +241,25 @@ DIRETRIZES:
 - Quando criar algo (tarefa/memória), confirme o que foi criado`;
 
   // 4. Agentic loop (máx 5 rounds de tool calls)
-  const recentHistory = history.slice(-10); // últimas 10 trocas
-  const messages: { role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string; name?: string }[] = [
+  const recentHistory = history.slice(-10);
+  // Build user message: plain text or multimodal (with images)
+  const hasImages = attachments.some(a => a.type === "image");
+  const userContent = hasImages
+    ? [
+        { type: "text" as const, text: query },
+        ...attachments
+          .filter(a => a.type === "image")
+          .map(a => ({ type: "image_url" as const, image_url: { url: `data:${a.mimeType};base64,${a.data}`, detail: "auto" as const } })),
+      ]
+    : query;
+
+  // Use gpt-4o when images are present (better vision)
+  const chatModel = hasImages ? "gpt-4o" : "gpt-4o-mini";
+
+  const messages: { role: string; content: unknown; tool_calls?: unknown[]; tool_call_id?: string; name?: string }[] = [
     { role: "system", content: systemPrompt },
     ...recentHistory.map(h => ({ role: h.role, content: h.content })),
-    { role: "user",   content: query },
+    { role: "user",   content: userContent },
   ];
 
   let finalAnswer = "";
@@ -249,7 +268,7 @@ DIRETRIZES:
   for (let round = 0; round < 5; round++) {
     const completion = await openAiBreaker.execute(() =>
       withRetry(() => (openai.chat.completions.create as Function)({
-        model: "gpt-4o-mini",
+        model: chatModel,
         messages,
         tools: TOOLS,
         tool_choice: "auto",
