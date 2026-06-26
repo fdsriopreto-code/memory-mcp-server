@@ -28,15 +28,33 @@ if [ -n "$MISSING" ]; then
   echo "     ADMIN_PASSWORD  = sua-senha-segura"
   echo "     OPENAI_API_KEY  = sk-..."
   echo ""
+  echo "   Opcional — para usar banco/redis externos já existentes:"
+  echo "     DATABASE_URL    = postgresql://user:pass@host:5432/db"
+  echo "     REDIS_URL       = redis://host:6379"
+  echo ""
   exit 1
 fi
 
-# ── 2. Garante /data com permissões corretas ──────────────────────────────────
+# ── 2. Detecta modo: externo ou interno ───────────────────────────────────────
+# Se DATABASE_URL já veio do ambiente externo, usa ele direto (pula Postgres interno)
+EXTERNAL_DB=false
+if [ -n "$DATABASE_URL" ]; then
+  echo "🔗 DATABASE_URL externo detectado — usando banco externo, pulando Postgres interno"
+  EXTERNAL_DB=true
+fi
+
+# Se REDIS_URL já veio do ambiente externo, usa ele direto (pula Redis interno)
+EXTERNAL_REDIS=false
+if [ -n "$REDIS_URL" ]; then
+  echo "🔗 REDIS_URL externo detectado — usando Redis externo, pulando Redis interno"
+  EXTERNAL_REDIS=true
+fi
+
+# ── 3. Garante /data com permissões corretas ──────────────────────────────────
 mkdir -p /data 2>/dev/null || true
 chmod 777 /data 2>/dev/null || true
 
-# ── 3. Gera ou carrega segredos automáticos ───────────────────────────────────
-# Tenta /data primeiro, cai para /tmp se não tiver permissão
+# ── 4. Gera ou carrega segredos automáticos ───────────────────────────────────
 if touch /data/.test 2>/dev/null; then
   rm -f /data/.test
   SECRETS_FILE="/data/.secrets"
@@ -69,60 +87,74 @@ fi
 
 . "$SECRETS_FILE"   # source compatível com /bin/sh
 
-export DATABASE_URL="postgresql://mcp_user:${DB_PASSWORD}@127.0.0.1:5432/mcp_db"
-export REDIS_URL="redis://127.0.0.1:6379"
-export JWT_SECRET MCP_API_KEY ENCRYPTION_KEY
-
-# ── 4. Inicializa PostgreSQL ──────────────────────────────────────────────────
-PG_DATA="/var/lib/postgresql/data"
-PG_BIN="/usr/lib/postgresql/16/bin"
-
-# Garante que postgres é dono do diretório de dados
-chown -R postgres:postgres "$PG_DATA" 2>/dev/null || true
-
-if [ ! -f "$PG_DATA/PG_VERSION" ]; then
-  echo "📦 Inicializando PostgreSQL pela primeira vez..."
-  su -s /bin/bash postgres -c "$PG_BIN/initdb -D $PG_DATA --auth-local=trust --auth-host=trust -E UTF8 --no-locale"
-  # Loga no stderr (stdout do container), não em arquivo
-  echo "logging_collector = off" >> "$PG_DATA/postgresql.conf"
-  echo "log_destination = 'stderr'"  >> "$PG_DATA/postgresql.conf"
+# Só gera DATABASE_URL interno se não veio do ambiente externo
+if [ "$EXTERNAL_DB" = "false" ]; then
+  export DATABASE_URL="postgresql://mcp_user:${DB_PASSWORD}@127.0.0.1:5432/mcp_db"
 fi
 
-echo "▶ Iniciando PostgreSQL..."
-# Sem -l: postgres loga direto no stdout/stderr (correto para Docker)
-su -s /bin/bash postgres -c "$PG_BIN/pg_ctl -D $PG_DATA start -w -t 60"
-echo "✅ PostgreSQL pronto"
+# Só gera REDIS_URL interno se não veio do ambiente externo
+if [ "$EXTERNAL_REDIS" = "false" ]; then
+  export REDIS_URL="redis://127.0.0.1:6379"
+fi
 
-# Cria usuário/banco/extensão na primeira vez
-su -s /bin/bash postgres -c "psql -U postgres -tc \"SELECT 1 FROM pg_roles WHERE rolname='mcp_user'\" | grep -q 1 \
-  || psql -U postgres -c \"CREATE USER mcp_user WITH PASSWORD '${DB_PASSWORD}'\"" 2>/dev/null || true
+export JWT_SECRET MCP_API_KEY ENCRYPTION_KEY
 
-su -s /bin/bash postgres -c "psql -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname='mcp_db'\" | grep -q 1 \
-  || psql -U postgres -c \"CREATE DATABASE mcp_db OWNER mcp_user\"" 2>/dev/null || true
+# ── 5. Inicializa PostgreSQL interno (só se não usar externo) ─────────────────
+if [ "$EXTERNAL_DB" = "false" ]; then
+  PG_DATA="/var/lib/postgresql/data"
+  PG_BIN="/usr/lib/postgresql/16/bin"
 
-su -s /bin/bash postgres -c "psql -U postgres -d mcp_db -c \"CREATE EXTENSION IF NOT EXISTS vector\"" 2>/dev/null || true
+  chown -R postgres:postgres "$PG_DATA" 2>/dev/null || true
 
-# ── 5. Inicia Redis ───────────────────────────────────────────────────────────
-echo "▶ Iniciando Redis..."
-redis-server /etc/redis/redis-standalone.conf \
-  --daemonize yes \
-  --logfile "" \
-  --pidfile /tmp/redis.pid
-echo "✅ Redis pronto"
+  if [ ! -f "$PG_DATA/PG_VERSION" ]; then
+    echo "📦 Inicializando PostgreSQL pela primeira vez..."
+    su -s /bin/bash postgres -c "$PG_BIN/initdb -D $PG_DATA --auth-local=trust --auth-host=trust -E UTF8 --no-locale"
+    echo "logging_collector = off" >> "$PG_DATA/postgresql.conf"
+    echo "log_destination = 'stderr'"  >> "$PG_DATA/postgresql.conf"
+  fi
 
-# ── 6. Roda migrations ───────────────────────────────────────────────────────
+  echo "▶ Iniciando PostgreSQL interno..."
+  su -s /bin/bash postgres -c "$PG_BIN/pg_ctl -D $PG_DATA start -w -t 60"
+  echo "✅ PostgreSQL pronto"
+
+  su -s /bin/bash postgres -c "psql -U postgres -tc \"SELECT 1 FROM pg_roles WHERE rolname='mcp_user'\" | grep -q 1 \
+    || psql -U postgres -c \"CREATE USER mcp_user WITH PASSWORD '${DB_PASSWORD}'\"" 2>/dev/null || true
+
+  su -s /bin/bash postgres -c "psql -U postgres -tc \"SELECT 1 FROM pg_database WHERE datname='mcp_db'\" | grep -q 1 \
+    || psql -U postgres -c \"CREATE DATABASE mcp_db OWNER mcp_user\"" 2>/dev/null || true
+
+  su -s /bin/bash postgres -c "psql -U postgres -d mcp_db -c \"CREATE EXTENSION IF NOT EXISTS vector\"" 2>/dev/null || true
+else
+  echo "⏭ PostgreSQL interno pulado (usando externo)"
+fi
+
+# ── 6. Inicia Redis interno (só se não usar externo) ──────────────────────────
+if [ "$EXTERNAL_REDIS" = "false" ]; then
+  echo "▶ Iniciando Redis interno..."
+  redis-server /etc/redis/redis-standalone.conf \
+    --daemonize yes \
+    --logfile "" \
+    --pidfile /tmp/redis.pid
+  echo "✅ Redis pronto"
+else
+  echo "⏭ Redis interno pulado (usando externo)"
+fi
+
+# ── 7. Roda migrations ────────────────────────────────────────────────────────
 echo "📦 Aplicando migrations..."
 cd /app
 npx prisma db push --accept-data-loss 2>&1 | grep -v "^$" | tail -10
 echo "✅ Migrations aplicadas"
 
-# ── 7. Inicia Node.js ────────────────────────────────────────────────────────
+# ── 8. Inicia Node.js ─────────────────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅ Memory MCP iniciado com sucesso!"
 echo "   Porta:       ${PORT:-3100}"
 echo "   Admin:       ${ADMIN_EMAIL}"
 echo "   MCP API Key: ${MCP_API_KEY}"
+echo "   Banco:       $([ "$EXTERNAL_DB" = "true" ] && echo "EXTERNO" || echo "interno")"
+echo "   Redis:       $([ "$EXTERNAL_REDIS" = "true" ] && echo "EXTERNO" || echo "interno")"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
