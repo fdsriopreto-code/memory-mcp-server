@@ -254,6 +254,18 @@ model MemoryAnchor {
   @@map("memory_anchors")
 }
 
+model ChatSession {
+  id          String   @id @default(cuid())
+  projectSlug String   @default("__free__") @map("project_slug")
+  projectName String   @default("Chat Livre") @map("project_name")
+  title       String   @default("Nova conversa")
+  messages    Json     @default("[]")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("chat_sessions")
+}
+
 model AIConfig {
   id        String   @id @default(cuid())
   role      String   @unique

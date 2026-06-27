@@ -1265,6 +1265,68 @@ apiRoutes.delete("/ai-config/:role", async (req, res) => {
   }
 });
 
+// ── Chat Sessions (persistência cross-device) ─────────────────────────────────
+apiRoutes.get("/chat-sessions", async (_req, res) => {
+  try {
+    const sessions = await (prisma as any).chatSession.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    });
+    res.json(sessions);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.post("/chat-sessions", async (req, res) => {
+  try {
+    const { id, projectSlug, projectName, title, messages } = req.body as {
+      id?: string; projectSlug: string; projectName: string; title: string; messages: unknown[];
+    };
+    const data: Record<string, unknown> = { projectSlug, projectName, title, messages: messages ?? [] };
+    if (id) data.id = id;
+    const session = await (prisma as any).chatSession.create({ data });
+    res.status(201).json(session);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.patch("/chat-sessions/:id", async (req, res) => {
+  try {
+    const { title, messages, projectSlug, projectName } = req.body as {
+      title?: string; messages?: unknown[]; projectSlug?: string; projectName?: string;
+    };
+    const data: Record<string, unknown> = {};
+    if (title         !== undefined) data.title       = title;
+    if (messages      !== undefined) data.messages    = messages;
+    if (projectSlug   !== undefined) data.projectSlug = projectSlug;
+    if (projectName   !== undefined) data.projectName = projectName;
+    const session = await (prisma as any).chatSession.update({ where: { id: req.params.id }, data });
+    res.json(session);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.delete("/chat-sessions/:id", async (req, res) => {
+  try {
+    await (prisma as any).chatSession.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+apiRoutes.delete("/chat-sessions", async (_req, res) => {
+  try {
+    await (prisma as any).chatSession.deleteMany({});
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // POST /api/agent-run — chamado pela AgentRunPage no frontend (fire and forget, progresso via WebSocket)
 apiRoutes.post("/agent-run", async (req, res) => {
   try {

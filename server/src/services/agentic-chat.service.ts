@@ -227,12 +227,24 @@ export async function agentChat(
     }
   } catch { /* sem embedding, continua sem contexto */ }
 
-  // 3. System prompt
+  // 3. System prompt — injeta projetos disponíveis para evitar slugs inválidos
+  let projectsContext = "";
+  try {
+    const allProjects = await prisma.project.findMany({
+      select: { name: true, slug: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (allProjects.length > 0) {
+      projectsContext = `PROJETOS DISPONÍVEIS (use estes slugs exatos para create_task/create_memory):\n${allProjects.map(p => `- "${p.slug}" → ${p.name}`).join("\n")}\n\n`;
+    }
+  } catch { /* continua sem lista de projetos */ }
+
   const systemPrompt = `Você é um assistente de segundo cérebro inteligente e agêntico com acesso a ferramentas.
 
-${semanticContext ? `CONTEXTO DO PROJETO (memórias relevantes):\n${semanticContext}\n\n` : ""}
-DIRETRIZES:
+${projectsContext}${semanticContext ? `CONTEXTO DO PROJETO (memórias relevantes):\n${semanticContext}\n\n` : ""}DIRETRIZES:
 - Se o usuário pedir para criar tarefas, memórias, buscar na internet — USE as ferramentas disponíveis
+- Para create_task/create_memory: use APENAS os slugs listados acima em PROJETOS DISPONÍVEIS
+- Se não houver projeto indicado pelo usuário, use o primeiro da lista ou pergunte qual
 - Se for uma pergunta de conhecimento → responda com base nas memórias + raciocínio
 - Se for uma ideia nova ou brainstorming → explore e sugira ativamente, crie memórias se relevante
 - Se precisar de informações externas/atuais → use web_search

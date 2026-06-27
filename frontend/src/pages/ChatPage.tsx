@@ -25,17 +25,24 @@ type ChatSession = {
 };
 
 // ── Session storage ────────────────────────────────────────────────────────────
+// localStorage = cache rápido; API = persistência cross-device
 const SKEY = "mcp_sessions_v1";
-const loadSessions = (): ChatSession[] => {
+const lsLoad = (): ChatSession[] => {
   try { return JSON.parse(localStorage.getItem(SKEY) ?? "[]"); } catch { return []; }
 };
-const saveSessions = (s: ChatSession[]) => {
+const lsSave = (s: ChatSession[]) => {
   try { localStorage.setItem(SKEY, JSON.stringify(s.slice(-50))); } catch { /* quota */ }
 };
+// ID local começa com "s" — ainda não persistido na API
 const mkSession = (slug: string, name: string): ChatSession => ({
   id: `s${Date.now()}`, projectSlug: slug, projectName: name,
   title: "Nova conversa", messages: [], createdAt: Date.now(), updatedAt: Date.now(),
 });
+type ApiSession = { id: string; projectSlug: string; projectName: string; title: string; messages: unknown; createdAt: string; updatedAt: string };
+function normApi(s: ApiSession): ChatSession {
+  return { id: s.id, projectSlug: s.projectSlug, projectName: s.projectName, title: s.title,
+    messages: (s.messages as Message[]) ?? [], createdAt: new Date(s.createdAt).getTime(), updatedAt: new Date(s.updatedAt).getTime() };
+}
 const FREE_SLUG = "__free__";
 function timeAgo(ts: number) {
   const d = Math.floor((Date.now() - ts) / 1000);
@@ -564,11 +571,12 @@ export default function ChatPage() {
   const [attachments,setAttachments]=useState<AttachFile[]>([]);
   const [showSessions,setShowSessions]=useState(false);
 
-  const [sessions,setSessions] = useState<ChatSession[]>(loadSessions);
+  const [sessions,setSessions] = useState<ChatSession[]>(lsLoad);
   const [currentSession,setCurrentSession] = useState<ChatSession>(()=>{
-    const ss=loadSessions(); return ss.length>0?ss[ss.length-1]:mkSession(FREE_SLUG,"Chat Livre");
+    const ss=lsLoad(); return ss.length>0?ss[ss.length-1]:mkSession(FREE_SLUG,"Chat Livre");
   });
   const messages = currentSession.messages;
+  const curSessRef = useRef(currentSession);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef     = useRef<HTMLTextAreaElement>(null);
@@ -584,17 +592,58 @@ export default function ChatPage() {
     api.get<Project[]>("/api/projects").then(p=>setProjects(p)).catch(()=>{});
   },[]);
 
+  // Sync sessões do servidor na montagem — carrega histórico cross-device
+  useEffect(()=>{
+    api.get<ApiSession[]>("/api/chat-sessions").then(apiSessions=>{
+      if(!apiSessions.length) return;
+      const norm = apiSessions.map(normApi);
+      setSessions(norm);
+      lsSave(norm);
+      // Se sessão atual está vazia E existe histórico → abre a mais recente do servidor
+      if(curSessRef.current.messages.length===0 && norm.length>0){
+        const latest = norm[norm.length-1];
+        setCurrentSession(latest);
+        setProject(latest.projectSlug);
+        curSessRef.current = latest;
+      }
+    }).catch(()=>{ /* offline → usa localStorage */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
   useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages,loading]);
 
-  function saveSession(sess:ChatSession, msgs:Message[]) {
+  async function saveSession(sess:ChatSession, msgs:Message[]) {
     const title = msgs.find(m=>m.role==="user")?.text?.slice(0,55) ?? sess.title;
     const updated:ChatSession = {...sess, messages:msgs, title:title||"Nova conversa", updatedAt:Date.now()};
     setCurrentSession(updated);
+    curSessRef.current = updated;
     setSessions(prev=>{
       const without = prev.filter(s=>s.id!==updated.id);
       const next = [...without, updated];
-      saveSessions(next); return next;
+      lsSave(next); return next;
     });
+
+    // API sync — ID local (s...) → POST cria; ID de servidor → PATCH atualiza
+    const isLocal = sess.id.startsWith("s");
+    if(isLocal){
+      try{
+        const remote = await api.post<ApiSession>("/api/chat-sessions",{
+          projectSlug:updated.projectSlug, projectName:updated.projectName,
+          title:updated.title, messages:msgs,
+        });
+        // Substitui o ID local pelo cuid do servidor
+        const withServerId:ChatSession = {...updated, id:remote.id};
+        setCurrentSession(withServerId);
+        curSessRef.current = withServerId;
+        setSessions(prev=>{
+          const without = prev.filter(s=>s.id!==updated.id);
+          const next = [...without, withServerId];
+          lsSave(next); return next;
+        });
+      }catch{/* offline, tenta na próxima */}
+    } else {
+      api.patch(`/api/chat-sessions/${sess.id}`,{title:updated.title, messages:msgs}).catch(()=>{});
+    }
   }
 
   function newChat(){
@@ -602,24 +651,29 @@ export default function ChatPage() {
     const projName = project===FREE_SLUG?"Chat Livre":(projects.find(p=>p.slug===project)?.name??"Projeto");
     const sess = mkSession(project, projName);
     setCurrentSession(sess);
-    setSessions(prev=>{const n=[...prev,sess];saveSessions(n);return n;});
+    curSessRef.current = sess;
+    setSessions(prev=>{const n=[...prev,sess];lsSave(n);return n;});
     setInput(""); setAttachments([]); setShowSessions(false);
   }
 
   function selectSession(s:ChatSession){
-    stopTTS(); setCurrentSession(s); setProject(s.projectSlug);
+    stopTTS(); setCurrentSession(s); curSessRef.current = s; setProject(s.projectSlug);
     setInput(""); setAttachments([]); setShowSessions(false);
   }
 
   function deleteSession(id:string){
-    setSessions(prev=>{const n=prev.filter(s=>s.id!==id);saveSessions(n);return n;});
+    setSessions(prev=>{const n=prev.filter(s=>s.id!==id);lsSave(n);return n;});
+    if(!id.startsWith("s")) api.delete(`/api/chat-sessions/${id}`).catch(()=>{});
     if(currentSession.id===id){
       const remaining = sessions.filter(s=>s.id!==id);
       if(remaining.length>0){
         setCurrentSession(remaining[remaining.length-1]);
+        curSessRef.current = remaining[remaining.length-1];
       } else {
         const projName = project===FREE_SLUG?"Chat Livre":(projects.find(p=>p.slug===project)?.name??"Projeto");
-        setCurrentSession(mkSession(project, projName));
+        const s = mkSession(project, projName);
+        setCurrentSession(s);
+        curSessRef.current = s;
       }
     }
   }
@@ -627,7 +681,8 @@ export default function ChatPage() {
   function clearAll(){
     const projName = project===FREE_SLUG?"Chat Livre":(projects.find(p=>p.slug===project)?.name??"Projeto");
     const sess = mkSession(project, projName);
-    setSessions([sess]); saveSessions([sess]); setCurrentSession(sess); setShowSessions(false);
+    setSessions([sess]); lsSave([sess]); setCurrentSession(sess); curSessRef.current = sess; setShowSessions(false);
+    api.delete("/api/chat-sessions").catch(()=>{});
   }
 
   function addMessages(newMsgs:Message[]){
