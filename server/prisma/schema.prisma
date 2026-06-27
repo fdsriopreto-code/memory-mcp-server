@@ -254,6 +254,34 @@ model MemoryAnchor {
   @@map("memory_anchors")
 }
 
+model Notification {
+  id          String   @id @default(cuid())
+  projectId   String?  @map("project_id")
+  type        String
+  title       String
+  body        String
+  memoryId    String?  @map("memory_id")
+  isRead      Boolean  @default(false) @map("is_read")
+  isDismissed Boolean  @default(false) @map("is_dismissed")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+model DayState {
+  id        String   @id @default(cuid())
+  date      String
+  focus     String?
+  energy    Int?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([date])
+  @@map("day_states")
+}
+
 model ChatSession {
   id          String   @id @default(cuid())
   projectSlug String   @default("__free__") @map("project_slug")

@@ -1265,6 +1265,245 @@ apiRoutes.delete("/ai-config/:role", async (req, res) => {
   }
 });
 
+// ── Quick Capture (captura rápida de ideia/URL/código) ───────────────────────
+apiRoutes.post("/quick-capture", async (req, res) => {
+  try {
+    const { text, projectSlug, fetchUrl } = req.body as { text: string; projectSlug?: string; fetchUrl?: boolean };
+    if (!text?.trim()) { res.status(400).json({ error: "text obrigatório" }); return; }
+
+    let content = text.trim();
+    let title = text.slice(0, 80).trim();
+    let detectedType: string = "NOTE";
+    let fetchedUrl: string | null = null;
+
+    // Detecta URL e faz fetch
+    const urlMatch = text.match(/https?:\/\/[^\s]+/);
+    if (urlMatch && fetchUrl !== false) {
+      fetchedUrl = urlMatch[0];
+      try {
+        const r = await fetch(fetchedUrl, {
+          headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8000)
+        });
+        if (r.ok) {
+          const html = await r.text();
+          const clean = html.replace(/<script[\s\S]*?<\/script>/gi,"").replace(/<style[\s\S]*?<\/style>/gi,"").replace(/<[^>]+>/g," ").replace(/\s{3,}/g,"\n").trim().slice(0,6000);
+          const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+          title = titleMatch ? titleMatch[1].trim().slice(0,80) : fetchedUrl.slice(0,80);
+          content = `URL: ${fetchedUrl}\n\n${clean}`;
+          detectedType = "CONTEXT";
+        }
+      } catch { /* continua com texto original */ }
+    }
+
+    // Detecta código
+    if (/```[\s\S]+```/.test(text) || /^(import|export|function|const|class|def |public |private )/m.test(text)) {
+      detectedType = "PATTERN";
+    }
+
+    // Usa IA para classificar e extrair título se a entrada for longa
+    let aiTitle = title; let aiType = detectedType;
+    if (content.length > 200) {
+      try {
+        const openaiKey = process.env.OPENAI_API_KEY;
+        if (openaiKey) {
+          const OpenAI = (await import("openai")).default;
+          const openai = new OpenAI({ apiKey: openaiKey });
+          const r = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: `Dado este texto, responda em JSON com: {"title":"título curto (máx 70 chars)","type":"DECISION|CONTEXT|PATTERN|NOTE|ARCHITECTURE|BRAIN","tags":["tag1","tag2"]}\n\nTexto: ${content.slice(0,1500)}` }],
+            max_tokens: 150, temperature: 0.3, response_format: { type: "json_object" },
+          });
+          const parsed = JSON.parse(r.choices[0].message.content ?? "{}");
+          if (parsed.title) aiTitle = parsed.title;
+          if (parsed.type && ["DECISION","CONTEXT","PATTERN","NOTE","ARCHITECTURE","BRAIN"].includes(parsed.type)) aiType = parsed.type;
+        }
+      } catch { /* usa valores padrão */ }
+    }
+
+    // Resolve projeto
+    let projectId: string | null = null;
+    if (projectSlug) {
+      const proj = await prisma.project.findUnique({ where: { slug: projectSlug } });
+      projectId = proj?.id ?? null;
+    }
+    if (!projectId) {
+      const first = await prisma.project.findFirst({ orderBy: { createdAt: "asc" } });
+      projectId = first?.id ?? null;
+    }
+    if (!projectId) { res.status(400).json({ error: "Nenhum projeto encontrado. Crie um projeto primeiro." }); return; }
+
+    const memory = await prisma.memory.create({
+      data: { projectId, type: aiType as never, title: aiTitle, content, tags: [], importance: 3 },
+    });
+    res.status(201).json({ ok: true, memoryId: memory.id, title: memory.title, type: memory.type, fetchedUrl });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+apiRoutes.get("/notifications", async (req, res) => {
+  try {
+    const { unread } = req.query as { unread?: string };
+    const where = unread === "true" ? { isDismissed: false } : {};
+    const notifs = await (prisma as any).notification.findMany({
+      where, orderBy: { createdAt: "desc" }, take: 50,
+    });
+    res.json(notifs);
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+apiRoutes.patch("/notifications/:id/read", async (req, res) => {
+  try {
+    await (prisma as any).notification.update({ where: { id: req.params.id }, data: { isRead: true } });
+    res.json({ ok: true });
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+apiRoutes.delete("/notifications/:id", async (req, res) => {
+  try {
+    await (prisma as any).notification.update({ where: { id: req.params.id }, data: { isDismissed: true } });
+    res.json({ ok: true });
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+apiRoutes.delete("/notifications", async (_req, res) => {
+  try {
+    await (prisma as any).notification.updateMany({ data: { isDismissed: true } });
+    res.json({ ok: true });
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+apiRoutes.post("/notifications/generate", async (_req, res) => {
+  try {
+    const now = new Date();
+    const ago30 = new Date(now.getTime() - 30 * 86_400_000);
+    const ago45 = new Date(now.getTime() - 45 * 86_400_000);
+    const created: string[] = [];
+
+    // Já existem notificações não dismissed para esses memoryIds?
+    const existing = await (prisma as any).notification.findMany({
+      where: { isDismissed: false }, select: { memoryId: true },
+    });
+    const existingIds = new Set((existing as { memoryId: string | null }[]).map(n => n.memoryId).filter(Boolean));
+
+    // HYPOTHESIS sem acesso há 30+ dias
+    const hypotheses = await prisma.memory.findMany({
+      where: { epistemicStatus: "HYPOTHESIS", OR: [{ accessedAt: null }, { accessedAt: { lt: ago30 } }] },
+      select: { id: true, title: true, projectId: true }, take: 8,
+    });
+    for (const m of hypotheses) {
+      if (existingIds.has(m.id)) continue;
+      await (prisma as any).notification.create({
+        data: { projectId: m.projectId, type: "hypothesis_review", memoryId: m.id,
+          title: "Hipótese para validar", body: `"${m.title.slice(0,60)}" está como HYPOTHESIS há mais de 30 dias. Confirma ou descarta?`,
+          metadata: { memoryId: m.id } }
+      });
+      created.push(m.id);
+    }
+
+    // Alta importância (≥4) idle há 45+ dias
+    const idle = await prisma.memory.findMany({
+      where: { importance: { gte: 4 }, OR: [{ accessedAt: null }, { accessedAt: { lt: ago45 } }], epistemicStatus: { not: "DEPRECATED" } },
+      select: { id: true, title: true, projectId: true }, take: 6,
+    });
+    for (const m of idle) {
+      if (existingIds.has(m.id) || created.includes(m.id)) continue;
+      await (prisma as any).notification.create({
+        data: { projectId: m.projectId, type: "idle_memory", memoryId: m.id,
+          title: "Memória importante esquecida", body: `"${m.title.slice(0,60)}" tem importância alta mas não é acessada há mais de 45 dias.`,
+          metadata: { memoryId: m.id } }
+      });
+      created.push(m.id);
+    }
+
+    // Clusters para síntese — projetos com 20+ memórias sem SYNTHESIS recente
+    const projects = await prisma.project.findMany({ select: { id: true, name: true, slug: true } });
+    for (const p of projects) {
+      const [total, synthCount] = await Promise.all([
+        prisma.memory.count({ where: { projectId: p.id } }),
+        prisma.memory.count({ where: { projectId: p.id, type: "SYNTHESIS", createdAt: { gte: ago30 } } }),
+      ]);
+      if (total >= 20 && synthCount === 0 && !existingIds.has(`synth_${p.id}`)) {
+        await (prisma as any).notification.create({
+          data: { projectId: p.id, type: "synthesis_ready", memoryId: `synth_${p.id}`,
+            title: "Síntese recomendada", body: `O projeto "${p.name}" tem ${total} memórias sem síntese recente. Quer que eu crie uma síntese automática?`,
+            metadata: { projectSlug: p.slug, total } }
+        });
+      }
+    }
+
+    res.json({ ok: true, created: created.length });
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+// ── Day State ─────────────────────────────────────────────────────────────────
+apiRoutes.get("/day-state", async (req, res) => {
+  try {
+    const date = (req.query.date as string) ?? new Date().toISOString().split("T")[0];
+    const state = await (prisma as any).dayState.findUnique({ where: { date } });
+    res.json(state ?? null);
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+apiRoutes.put("/day-state", async (req, res) => {
+  try {
+    const { date, focus, energy, notes } = req.body as { date?: string; focus?: string; energy?: number; notes?: string };
+    const d = date ?? new Date().toISOString().split("T")[0];
+    const state = await (prisma as any).dayState.upsert({
+      where: { date: d },
+      create: { date: d, focus, energy, notes },
+      update: { focus, energy, notes },
+    });
+    res.json(state);
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+// ── Quiz / Revisão de Memórias ────────────────────────────────────────────────
+apiRoutes.get("/quiz", async (req, res) => {
+  try {
+    const { projectSlug, limit = "5" } = req.query as { projectSlug?: string; limit?: string };
+    const ago30 = new Date(Date.now() - 30 * 86_400_000);
+    const where: Record<string, unknown> = {
+      OR: [{ accessedAt: null }, { accessedAt: { lt: ago30 } }],
+      type: { not: "SYNTHESIS" },
+      epistemicStatus: { not: "DEPRECATED" },
+    };
+    if (projectSlug) {
+      const proj = await prisma.project.findUnique({ where: { slug: projectSlug } });
+      if (proj) where.projectId = proj.id;
+    }
+    const memories = await prisma.memory.findMany({
+      where: where as never,
+      orderBy: [{ importance: "desc" }, { accessedAt: "asc" }],
+      take: Number(limit),
+      select: { id: true, title: true, content: true, type: true, importance: true, epistemicStatus: true, accessedAt: true,
+        project: { select: { name: true, slug: true, color: true } } },
+    });
+    res.json(memories);
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+apiRoutes.post("/quiz/:id/answer", async (req, res) => {
+  try {
+    const { result } = req.body as { result: "easy" | "hard" | "forgot" };
+    const memory = await prisma.memory.findUnique({ where: { id: req.params.id } });
+    if (!memory) { res.status(404).json({ error: "Memória não encontrada" }); return; }
+
+    const updates: Record<string, unknown> = { accessedAt: new Date() };
+    if (result === "easy") {
+      updates.validatedCount = (memory.validatedCount ?? 0) + 1;
+      if ((memory.validatedCount ?? 0) >= 2 && memory.epistemicStatus === "HYPOTHESIS") {
+        updates.epistemicStatus = "VALIDATED";
+      }
+    } else if (result === "forgot") {
+      updates.importance = Math.max(1, memory.importance - 1);
+    }
+    await prisma.memory.update({ where: { id: memory.id }, data: updates as never });
+    res.json({ ok: true, result });
+  } catch (e: unknown) { res.status(500).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
 // ── Chat Sessions (persistência cross-device) ─────────────────────────────────
 apiRoutes.get("/chat-sessions", async (_req, res) => {
   try {

@@ -5,6 +5,8 @@ import { useWs } from "../contexts/WsContext";
 import { useTheme } from "../contexts/ThemeContext";
 import type { AuditLog } from "../hooks/useLiveAudit";
 import ClaudeWidget from "../components/ClaudeWidget";
+import QuickCaptureModal from "../components/QuickCaptureModal";
+import NotificationBell from "../components/NotificationBell";
 import { api } from "../services/api";
 
 // ── SVG Icons ─────────────────────────────────────────────────────────────────
@@ -42,6 +44,9 @@ const Icon = {
   aiconfig:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.05 5.05l1.42 1.42M13.54 13.54l1.41 1.41M5.05 14.95l1.42-1.42M13.54 6.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="10" r="5" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2"/></svg>,
 };
 
+const Icon_quiz = <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M7.5 8C7.5 6.619 8.619 5.5 10 5.5S12.5 6.619 12.5 8c0 1-1 1.5-1.5 2v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="13.5" r=".75" fill="currentColor"/></svg>;
+const Icon_capture = <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+
 const NAV = [
   { to: "/",                label: "Dashboard",   icon: Icon.dashboard, badge: null   },
   { to: "/agent-run",       label: "Agent Run",   icon: Icon.robot,     badge: "new"  },
@@ -66,6 +71,7 @@ const NAV = [
   { to: "/logs",            label: "Logs",        icon: Icon.logs,      badge: null   },
   { to: "/services",        label: "Serviços",    icon: Icon.services,  badge: null   },
   { to: "/digest",          label: "Brain Digest", icon: Icon.digest,   badge: "new"  },
+  { to: "/quiz",            label: "Revisão Quiz", icon: Icon_quiz,     badge: "new"  },
   { to: "/ai-config",      label: "Config IA",    icon: Icon.aiconfig, badge: null   },
   { to: "/help",            label: "Ajuda",       icon: Icon.help,      badge: null   },
 ];
@@ -143,10 +149,20 @@ export default function AppLayout() {
   const isDark       = theme === "dark";
   const isFullscreen = FULLSCREEN_ROUTES.includes(location.pathname);
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen]   = useState(false);
   const [claudeActive, setClaudeActive] = useState(false);
-  const [lastTool, setLastTool] = useState<string | null>(null);
+  const [lastTool, setLastTool]         = useState<string | null>(null);
+  const [captureOpen, setCaptureOpen]   = useState(false);
   const lastActivity = useRef<number>(0);
+
+  // Ctrl+K / Cmd+K → Quick Capture
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); setCaptureOpen(v => !v); }
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   // Fecha sidebar ao navegar no mobile
   useEffect(() => { setSidebarOpen(false); }, [location.pathname]);
@@ -334,7 +350,10 @@ export default function AppLayout() {
           {isDark ? Icon.sun : Icon.moon}
           <span className="text-[13px]">{isDark ? "Tema claro" : "Tema escuro"}</span>
         </button>
-        <BrainPulse footerBtnColor={S.footerBtn as string} />
+        <div className="flex items-center justify-between px-3 py-1">
+          <BrainPulse footerBtnColor={S.footerBtn as string} />
+          <NotificationBell isDark={isDark} />
+        </div>
         <button onClick={handleLogout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl w-full transition-colors"
           style={{ color: S.footerBtn }}
@@ -429,7 +448,11 @@ export default function AppLayout() {
               </span>
             )}
           </div>
-          {/* WS indicator no top bar mobile */}
+          {/* Sino + WS indicator no top bar mobile */}
+          <NotificationBell isDark={isDark} />
+          <button onClick={() => setCaptureOpen(true)} className="p-1.5 rounded-lg" style={{ color: S.topBarColor }}>
+            {Icon_capture}
+          </button>
           <span className={`w-2 h-2 rounded-full shrink-0 ${connected ? "bg-indigo-500" : "bg-gray-400"}`} />
         </header>
 
@@ -446,6 +469,18 @@ export default function AppLayout() {
       </main>
 
       <ClaudeWidget />
+
+      {/* Quick Capture Modal — acessível de qualquer página */}
+      <QuickCaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
+
+      {/* Botão flutuante Quick Capture — desktop */}
+      <button onClick={() => setCaptureOpen(true)} title="Captura rápida (Ctrl+K)"
+        className="hidden md:flex fixed bottom-6 right-6 z-40 w-12 h-12 items-center justify-center rounded-full shadow-2xl transition-all hover:scale-105 active:scale-95"
+        style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", boxShadow: "0 8px 32px rgba(99,102,241,0.5)" }}>
+        <svg fill="none" viewBox="0 0 20 20" className="w-5 h-5"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+      </button>
+
+      {/* Sino desktop — no sidebar footer, junto ao BrainPulse */}
     </div>
   );
 }

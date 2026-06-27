@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../services/api";
 import { useLiveAudit } from "../hooks/useLiveAudit";
 
@@ -195,6 +195,89 @@ function fillDays(raw: { day: string; count: number }[], days = 14) {
     });
   }
   return result;
+}
+
+// ── DayState Widget ──────────────────────────────────────────────────────────
+type DayState = { date: string; focus?: string; energy?: number; notes?: string };
+
+const ENERGY_COLOR = ["", "#ef4444", "#f59e0b", "#6b7280", "#3b82f6", "#10b981"];
+const ENERGY_LABEL = ["", "😴 Exausto", "😕 Baixo", "😐 Normal", "⚡ Ativo", "🔥 Máximo"];
+
+function DayStateWidget() {
+  const today = new Date().toISOString().split("T")[0];
+  const [state, setState]   = useState<DayState>({ date: today });
+  const [saving, setSaving] = useState(false);
+  const saveRef             = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    api.get<DayState>(`/api/day-state?date=${today}`).then(d => { if (d) setState(d); }).catch(() => {});
+  }, [today]);
+
+  function autoSave(patch: Partial<DayState>) {
+    const next = { ...state, ...patch, date: today };
+    setState(next);
+    if (saveRef.current) clearTimeout(saveRef.current);
+    saveRef.current = setTimeout(async () => {
+      setSaving(true);
+      await api.put("/api/day-state", next).catch(() => {});
+      setSaving(false);
+    }, 800);
+  }
+
+  const dayOfWeek = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "short" });
+
+  return (
+    <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#080c1e,#0a0d18)" }}>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-sm font-semibold text-white">☀️ Estado do Dia</p>
+          <p className="text-[10px] mt-0.5 capitalize" style={{ color: "rgba(255,255,255,0.25)" }}>{dayOfWeek}</p>
+        </div>
+        {saving && <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>Salvando…</span>}
+      </div>
+
+      <div className="mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "rgba(255,255,255,0.25)" }}>Foco principal</p>
+        <input type="text" value={state.focus ?? ""} onChange={e => autoSave({ focus: e.target.value })}
+          placeholder="Em que vou focar hoje?"
+          className="w-full bg-transparent outline-none text-[13px] placeholder:opacity-25 border-b pb-1.5 transition-colors"
+          style={{ color: "rgba(255,255,255,0.85)", borderColor: "rgba(255,255,255,0.08)" }}
+          onFocus={e => e.target.style.borderColor = "rgba(99,102,241,0.4)"}
+          onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.08)"} />
+      </div>
+
+      <div className="mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "rgba(255,255,255,0.25)" }}>Energia</p>
+        <div className="flex gap-1.5">
+          {[1,2,3,4,5].map(e => (
+            <button key={e} onClick={() => autoSave({ energy: e })}
+              className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all"
+              style={{
+                background: state.energy === e ? `${ENERGY_COLOR[e]}20` : "rgba(255,255,255,0.04)",
+                color: state.energy === e ? ENERGY_COLOR[e] : "rgba(255,255,255,0.2)",
+                border: state.energy === e ? `1px solid ${ENERGY_COLOR[e]}40` : "1px solid transparent",
+              }}>
+              {e}
+            </button>
+          ))}
+        </div>
+        {state.energy && (
+          <p className="text-[10px] mt-1" style={{ color: ENERGY_COLOR[state.energy ?? 0] }}>{ENERGY_LABEL[state.energy ?? 0]}</p>
+        )}
+      </div>
+
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "rgba(255,255,255,0.25)" }}>Notas rápidas</p>
+        <textarea value={state.notes ?? ""} onChange={e => autoSave({ notes: e.target.value })}
+          placeholder="Pensamentos, bloqueios, ideias..."
+          rows={2}
+          className="w-full bg-transparent outline-none text-[12px] resize-none placeholder:opacity-20 rounded-xl border px-3 py-2 transition-colors"
+          style={{ color: "rgba(255,255,255,0.7)", borderColor: "rgba(255,255,255,0.06)" }}
+          onFocus={e => e.target.style.borderColor = "rgba(99,102,241,0.3)"}
+          onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.06)"} />
+      </div>
+    </div>
+  );
 }
 
 // ── System Observatory ────────────────────────────────────────────────────────
@@ -403,13 +486,18 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard label="Projetos"   value={stats.totals.projects}  accent="#6366f1" />
-        <StatCard label="Memórias"   value={stats.totals.memories}  sub={`~${fmtNum(stats.embeddings.estimatedTokens)} tokens`} accent="#10b981" />
-        <StatCard label="Tasks"      value={stats.totals.tasks}     accent="#3b82f6" />
-        <StatCard label="Logs hoje"  value={stats.totals.logsToday} sub={`${fmtNum(stats.totals.auditLogs)} total`} accent="#f59e0b" />
-        <StatCard label="Embed cost" value={costStr}                sub="text-embedding-3-small" accent="#ec4899" />
+      {/* ── DayState + Stat Cards ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="lg:col-span-1">
+          <DayStateWidget />
+        </div>
+        <div className="lg:col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
+          <StatCard label="Projetos"   value={stats.totals.projects}  accent="#6366f1" />
+          <StatCard label="Memórias"   value={stats.totals.memories}  sub={`~${fmtNum(stats.embeddings.estimatedTokens)} tokens`} accent="#10b981" />
+          <StatCard label="Tasks"      value={stats.totals.tasks}     accent="#3b82f6" />
+          <StatCard label="Logs hoje"  value={stats.totals.logsToday} sub={`${fmtNum(stats.totals.auditLogs)} total`} accent="#f59e0b" />
+          <StatCard label="Embed cost" value={costStr}                sub="text-embedding-3-small" accent="#ec4899" />
+        </div>
       </div>
 
       {/* ── Activity Chart + Donut ── */}
