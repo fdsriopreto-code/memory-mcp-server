@@ -253,7 +253,7 @@ function SystemObservatory() {
       )}
 
       {!err && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {/* Circuit Breaker */}
           <div className="rounded-xl p-4 border border-white/[0.05]" style={{ background: "rgba(255,255,255,0.02)" }}>
             <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>
@@ -404,7 +404,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard label="Projetos"   value={stats.totals.projects}  accent="#6366f1" />
         <StatCard label="Memórias"   value={stats.totals.memories}  sub={`~${fmtNum(stats.embeddings.estimatedTokens)} tokens`} accent="#10b981" />
         <StatCard label="Tasks"      value={stats.totals.tasks}     accent="#3b82f6" />
@@ -413,10 +413,10 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Activity Chart + Donut ── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         {/* Activity */}
-        <div className="col-span-2 rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
+        <div className="md:col-span-2 rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-sm font-semibold text-white">Atividade — 14 dias</p>
@@ -474,7 +474,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Tools + Tasks ── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
         {/* Top Tools */}
         <div className="rounded-2xl border border-white/[0.06] p-5" style={{ background: "linear-gradient(135deg,#0d1117,#0a0d18)" }}>
@@ -601,7 +601,7 @@ export default function DashboardPage() {
             text-embedding-3-small
           </span>
         </div>
-        <div className="grid grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           {[
             { label: "Memórias indexadas", value: fmtNum(stats.embeddings.memoriesWithEmbeddings) },
             { label: "Buscas semânticas",  value: fmtNum(stats.embeddings.searchCount) },
