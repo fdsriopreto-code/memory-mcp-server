@@ -491,8 +491,6 @@ apiRoutes.post("/external-services/:id/test", async (req, res) => {
 // ── Brain Chat (agêntico) ─────────────────────────────────────────────────────
 apiRoutes.post("/projects/:slug/brain/chat", async (req, res) => {
   try {
-    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
-    if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
     const { query, history = [], attachments = [] } = req.body as {
       query: string;
       history?: { role: "user"|"assistant"; content: string }[];
@@ -501,6 +499,16 @@ apiRoutes.post("/projects/:slug/brain/chat", async (req, res) => {
     if (!query?.trim()) { res.status(400).json({ error: "Query obrigatória" }); return; }
 
     const { agentChat } = await import("../services/agentic-chat.service.js");
+    const slug = req.params.slug;
+
+    // "__free__" slug = chat livre sem projeto (sem RAG, mas com ferramentas)
+    if (slug === "__free__") {
+      const result = await agentChat("", "__free__", query.trim(), history, attachments);
+      res.json(result); return;
+    }
+
+    const proj = await prisma.project.findUnique({ where: { slug } });
+    if (!proj) { res.status(404).json({ error: "Projeto não encontrado" }); return; }
     const result = await agentChat(proj.id, proj.slug, query.trim(), history, attachments);
     res.json(result);
   } catch (e: unknown) {
