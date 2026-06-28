@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
 
 type AIConfig = { role: string; provider: string; model: string; apiKey: string; isActive: boolean };
@@ -54,6 +54,270 @@ function CopyButton({ text }: { text: string }) {
       style={{ background:copied?"rgba(16,185,129,0.12)":"rgba(255,255,255,0.06)", color:copied?"#34d399":"rgba(255,255,255,0.4)", border:`1px solid ${copied?"rgba(16,185,129,0.2)":"rgba(255,255,255,0.08)"}` }}>
       {copied ? "✓ Copiado" : "Copiar"}
     </button>
+  );
+}
+
+// ── Setup Prompt ──────────────────────────────────────────────────────────────
+type PromptTab = "claudecode" | "cursor" | "generic";
+
+function SetupPrompt({ mcpKey }: { mcpKey: string | null }) {
+  const [tab, setTab]     = useState<PromptTab>("claudecode");
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const serverUrl = useMemo(() => window.location.origin, []);
+  const mcpUrl    = `${serverUrl}/mcp`;
+  const key       = mcpKey ?? "SUA_MCP_KEY_AQUI";
+  const masked    = !mcpKey;
+
+  async function copy(text: string, id: string) {
+    try { await navigator.clipboard.writeText(text); } catch { /* */ }
+    setCopied(id); setTimeout(() => setCopied(null), 2000);
+  }
+
+  const claudeJsonConfig = `{
+  "mcpServers": {
+    "memory-mcp": {
+      "type": "http",
+      "url": "${mcpUrl}",
+      "headers": {
+        "Authorization": "Bearer ${key}"
+      }
+    }
+  }
+}`;
+
+  const claudeMdTemplate = `# Memory MCP — Segundo Cérebro Persistente
+
+> Este projeto tem memória persistente via Memory MCP Server.
+> **USE SEMPRE** ao início e fim de cada sessão.
+
+## Início de Sessão (OBRIGATÓRIO)
+\`\`\`
+brain_session_start(project="SLUG_DO_PROJETO", focus="[o que vai trabalhar hoje]")
+\`\`\`
+
+## Durante a Sessão
+- Antes de tocar em pagamentos/auth/bugs → \`memory_search("área relevante")\`
+- Ao criar algo novo importante → \`memory_add(type, title, content)\`
+- Ao resolver um bug → \`memory_add(type="BUG_FIX", ...)\`
+- Ao tomar uma decisão arquitetural → \`memory_add(type="DECISION", ...)\`
+- Para criar tarefa → \`task_create(project, title, description, priority)\`
+
+## Fim de Sessão (OBRIGATÓRIO)
+\`\`\`
+brain_learn(project="SLUG_DO_PROJETO", text="[resumo do que foi feito, bugs, decisões, padrões]")
+\`\`\`
+
+## Projetos disponíveis
+Use \`project_list()\` para ver os slugs disponíveis.`;
+
+  const cursorSystemPrompt = `Você tem acesso a um servidor MCP de memória persistente (Memory MCP Server).
+
+## Conexão MCP
+- URL: ${mcpUrl}
+- Authorization: Bearer ${key}
+- Protocolo: JSON-RPC 2.0 com Mcp-Session-Id
+
+## Como usar
+1. Ao iniciar: chame brain_session_start(project="slug", focus="foco da sessão")
+2. Para buscar: memory_search(project="slug", query="busca semântica")
+3. Para salvar: memory_add(project, type, title, content)
+4. Para tarefas: task_create(project, title, description, priority)
+5. Ao terminar: brain_learn(project, text="resumo da sessão")
+
+## Tipos de memória
+DECISION | CONTEXT | PATTERN | NOTE | BUG_FIX | ARCHITECTURE | BRAIN
+
+## Regra mais importante
+SEMPRE consulte o Memory MCP antes de responder sobre qualquer projeto cadastrado.
+Use brain_session_start no início e brain_learn no fim de cada conversa.`;
+
+  const genericCurlExample = `# 1. Inicializar sessão
+SESSION_ID=$(curl -si -X POST "${mcpUrl}" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"minha-ia","version":"1"}}}' \\
+  | grep -i "^mcp-session-id:" | awk '{print $2}' | tr -d '\\r\\n')
+
+# 2. Listar projetos
+curl -s -X POST "${mcpUrl}" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Mcp-Session-Id: $SESSION_ID" \\
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"project_list","arguments":{}}}'
+
+# 3. Buscar memórias
+curl -s -X POST "${mcpUrl}" \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Mcp-Session-Id: $SESSION_ID" \\
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memory_search","arguments":{"project":"SEU_SLUG","query":"busca aqui"}}}'`;
+
+  const TAB_LABELS: Record<PromptTab, string> = {
+    claudecode: "Claude Code",
+    cursor:     "Cursor / GPT / Outros",
+    generic:    "HTTP / curl",
+  };
+
+  function CodeBlock({ code, id }: { code: string; id: string }) {
+    return (
+      <div className="relative rounded-xl overflow-hidden" style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(255,255,255,0.07)" }}>
+        <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
+          <span className="text-[10px] font-mono" style={{ color: "rgba(255,255,255,0.25)" }}>{id}</span>
+          <button onClick={() => copy(code, id)} className="text-[10px] px-2 py-0.5 rounded font-medium transition-all"
+            style={{ background: copied===id ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.06)", color: copied===id ? "#34d399" : "rgba(255,255,255,0.35)" }}>
+            {copied===id ? "✓ Copiado" : "Copiar"}
+          </button>
+        </div>
+        <pre className="px-4 py-3 text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap break-all" style={{ color: "rgba(255,255,255,0.7)" }}>{code}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(99,102,241,0.25)", background: "rgba(99,102,241,0.03)" }}>
+      {/* Header */}
+      <div className="px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div className="flex items-start gap-3">
+          <span className="text-xl mt-0.5">🔌</span>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-bold text-white">Prompt de Integração</h2>
+            <p className="text-[12px] mt-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>
+              Copie e envie para qualquer IA para ela se conectar ao seu Memory MCP automaticamente
+            </p>
+          </div>
+          {masked && (
+            <span className="text-[10px] px-2.5 py-1 rounded-full font-semibold shrink-0" style={{ background: "rgba(245,158,11,0.12)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.2)" }}>
+              ⚠️ Revele a chave acima para o prompt completo
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex px-5 pt-4 gap-1">
+        {(Object.keys(TAB_LABELS) as PromptTab[]).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className="px-3 py-1.5 rounded-t-xl text-[11px] font-semibold transition-all"
+            style={{
+              background: tab === t ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.03)",
+              color: tab === t ? "#a5b4fc" : "rgba(255,255,255,0.3)",
+              border: `1px solid ${tab === t ? "rgba(99,102,241,0.3)" : "rgba(255,255,255,0.06)"}`,
+              borderBottom: tab === t ? "1px solid rgba(99,102,241,0.03)" : "1px solid rgba(255,255,255,0.06)",
+            }}>
+            {TAB_LABELS[t]}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="px-5 pb-5 pt-3 space-y-4">
+
+        {/* ── Claude Code ── */}
+        {tab === "claudecode" && (
+          <>
+            <div className="rounded-xl p-3 space-y-1" style={{ background: "rgba(249,115,22,0.06)", border: "1px solid rgba(249,115,22,0.15)" }}>
+              <p className="text-[11px] font-semibold" style={{ color: "#fb923c" }}>1. Adicione ao seu <code className="bg-white/10 px-1 rounded">.claude/settings.json</code> (ou settings locais)</p>
+              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>Abre Claude Code → /config → MCP Servers → cole o JSON abaixo</p>
+            </div>
+            <CodeBlock id=".claude/settings.json (mcpServers)" code={claudeJsonConfig} />
+
+            <div className="rounded-xl p-3 space-y-1 mt-3" style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)" }}>
+              <p className="text-[11px] font-semibold" style={{ color: "#a5b4fc" }}>2. Crie um <code className="bg-white/10 px-1 rounded">CLAUDE.md</code> na raiz de cada projeto</p>
+              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>Cole este template e substitua SLUG_DO_PROJETO pelo slug correto (veja em Projetos)</p>
+            </div>
+            <CodeBlock id="CLAUDE.md" code={claudeMdTemplate} />
+
+            <div className="rounded-xl p-3" style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)" }}>
+              <p className="text-[11px] font-semibold mb-1" style={{ color: "#34d399" }}>✓ Como verificar se funcionou</p>
+              <p className="text-[10px] leading-relaxed" style={{ color: "rgba(255,255,255,0.4)" }}>
+                No chat do Claude Code, peça: <em>"Liste os projetos no Memory MCP"</em>. Se responder com a lista de projetos, está conectado.
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* ── Cursor / GPT ── */}
+        {tab === "cursor" && (
+          <>
+            <div className="rounded-xl p-3 space-y-1" style={{ background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)" }}>
+              <p className="text-[11px] font-semibold" style={{ color: "#a5b4fc" }}>Cole este prompt no System Prompt ou início da conversa</p>
+              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>Funciona com ChatGPT, Cursor, Windsurf, Copilot ou qualquer IA com suporte a MCP HTTP</p>
+            </div>
+            <CodeBlock id="System Prompt / Início da conversa" code={cursorSystemPrompt} />
+
+            <div className="rounded-xl p-3 space-y-2" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+              <p className="text-[11px] font-semibold text-white/50">Para Cursor (cursor.sh)</p>
+              <p className="text-[10px] leading-relaxed" style={{ color: "rgba(255,255,255,0.35)" }}>
+                Vá em <strong className="text-white/50">Settings → MCP → Add Server</strong>, escolha tipo HTTP e cole:
+              </p>
+              <div className="font-mono text-[11px] px-3 py-2 rounded-lg" style={{ background: "rgba(0,0,0,0.3)", color: "rgba(255,255,255,0.6)" }}>
+                URL: {mcpUrl}<br/>
+                Header: Authorization: Bearer {key}
+              </div>
+              <button onClick={() => copy(`${mcpUrl}\nAuthorization: Bearer ${key}`, "cursor-url")}
+                className="text-[10px] px-2.5 py-1 rounded-lg font-medium transition-all"
+                style={{ background: copied==="cursor-url" ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.06)", color: copied==="cursor-url" ? "#34d399" : "rgba(255,255,255,0.35)" }}>
+                {copied==="cursor-url" ? "✓ Copiado" : "Copiar URL + Header"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Generic / curl ── */}
+        {tab === "generic" && (
+          <>
+            <div className="rounded-xl p-3 space-y-1" style={{ background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.15)" }}>
+              <p className="text-[11px] font-semibold" style={{ color: "#38bdf8" }}>Acesso direto via HTTP — qualquer linguagem</p>
+              <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                Endpoint: <code className="text-sky-400">{mcpUrl}</code> · Protocolo: JSON-RPC 2.0 + SSE · Auth: Bearer token
+              </p>
+            </div>
+            <CodeBlock id="Exemplo curl (bash)" code={genericCurlExample} />
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="rounded-xl p-3 space-y-1.5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <p className="text-[10px] font-semibold text-white/50">Detalhes do protocolo</p>
+                <div className="space-y-1 text-[10px]" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  <p>• Inicializar → obtém <code className="text-white/50">Mcp-Session-Id</code></p>
+                  <p>• Enviar ID em todo request seguinte</p>
+                  <p>• Resposta: <code className="text-white/50">event: message\ndata: {"{...}"}</code></p>
+                  <p>• Versão protocolo: <code className="text-white/50">2024-11-05</code></p>
+                </div>
+              </div>
+              <div className="rounded-xl p-3 space-y-1.5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                <p className="text-[10px] font-semibold text-white/50">Tools mais usadas</p>
+                <div className="space-y-1 text-[10px]" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  <p>• <code className="text-indigo-400">project_list</code> — ver projetos</p>
+                  <p>• <code className="text-indigo-400">brain_session_start</code> — iniciar sessão</p>
+                  <p>• <code className="text-indigo-400">memory_search</code> — busca semântica</p>
+                  <p>• <code className="text-indigo-400">memory_add</code> — salvar memória</p>
+                  <p>• <code className="text-indigo-400">brain_learn</code> — aprender da sessão</p>
+                  <p>• <code className="text-indigo-400">task_create</code> — criar tarefa</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Server info footer */}
+        <div className="flex items-center gap-4 pt-1 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"/>
+            <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.25)" }}>Servidor ativo</span>
+          </div>
+          <span className="text-[10px] font-mono truncate" style={{ color: "rgba(255,255,255,0.2)" }}>{mcpUrl}</span>
+          <button onClick={() => copy(mcpUrl, "mcpurl-footer")}
+            className="text-[10px] px-2 py-0.5 rounded font-medium transition-all"
+            style={{ background: copied==="mcpurl-footer" ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.05)", color: copied==="mcpurl-footer" ? "#34d399" : "rgba(255,255,255,0.25)" }}>
+            {copied==="mcpurl-footer" ? "✓" : "Copiar URL"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -236,6 +500,9 @@ export default function AIConfigPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Setup Prompt ─────────────────────────────────────────────────────── */}
+      <SetupPrompt mcpKey={mcpKey} />
 
       {/* ── Key sharing suggestion ────────────────────────────────────────────── */}
       {shareSuggestion && (
