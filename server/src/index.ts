@@ -16,6 +16,7 @@ import { apiRateLimit } from "./middleware/rate-limit.middleware.js";
 import { initBrainWorker } from "./workers/brain.worker.js";
 import { initDecayScheduler } from "./workers/decay.scheduler.js";
 import { initSynthesisScheduler } from "./workers/synthesis.scheduler.js";
+import { initBrainDoctorScheduler } from "./workers/brain-doctor.scheduler.js";
 
 patchConsole();
 
@@ -119,6 +120,7 @@ async function start() {
   initBrainWorker();
   initDecayScheduler();
   initSynthesisScheduler();
+  initBrainDoctorScheduler();
 }
 
 start().catch((e) => { console.error(e); process.exit(1); });

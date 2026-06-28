@@ -1567,6 +1567,86 @@ apiRoutes.delete("/chat-sessions", async (_req, res) => {
 });
 
 // POST /api/agent-run — chamado pela AgentRunPage no frontend (fire and forget, progresso via WebSocket)
+// ── Brain Doctor ──────────────────────────────────────────────────────────────
+
+apiRoutes.get("/brain-doctor/models", (_req, res) => {
+  const { AI_MODELS, getProviderKey } = require("../services/ai-provider.service.js") as typeof import("../services/ai-provider.service.js");
+  res.json(AI_MODELS.map(m => ({
+    ...m,
+    hasKey: !!getProviderKey(m.provider),
+  })));
+});
+
+apiRoutes.get("/brain-doctor/config", async (_req, res) => {
+  try {
+    const { getConfig } = await import("../workers/brain-doctor.scheduler.js");
+    res.json(await getConfig());
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+apiRoutes.put("/brain-doctor/config", async (req, res) => {
+  try {
+    const { saveConfig } = await import("../workers/brain-doctor.scheduler.js");
+    const { enabled, frequency, model, projects, hour } = req.body as {
+      enabled: boolean; frequency: string; model: string; projects: string[]; hour: number;
+    };
+    await saveConfig({ enabled, frequency, model, projects: projects ?? [], hour: Number(hour ?? 3) });
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+apiRoutes.post("/brain-doctor/run", async (req, res) => {
+  try {
+    const { projectSlug, modelId, apiKey, goal } = req.body as {
+      projectSlug: string; modelId: string; apiKey?: string; goal?: string;
+    };
+    if (!projectSlug || !modelId) {
+      res.status(400).json({ error: "projectSlug e modelId obrigatórios" });
+      return;
+    }
+    const { triggerManualRun } = await import("../workers/brain-doctor.scheduler.js");
+    const result = await triggerManualRun({ projectSlug, modelId, apiKey, goal });
+    res.json({ ...result, status: "started", message: "Brain Doctor iniciado — progresso via WebSocket brain:doctor:*" });
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+apiRoutes.get("/brain-doctor/runs", async (req, res) => {
+  try {
+    const projectSlug = req.query.project as string | undefined;
+    const runs = await prisma.brainDoctorRun.findMany({
+      where:   projectSlug ? { projectSlug } : undefined,
+      orderBy: { startedAt: "desc" },
+      take:    30,
+      select: {
+        id: true, projectSlug: true, model: true, status: true,
+        goal: true, stats: true, summary: true, error: true,
+        startedAt: true, completedAt: true,
+      },
+    });
+    res.json(runs);
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+apiRoutes.get("/brain-doctor/runs/:id", async (req, res) => {
+  try {
+    const run = await prisma.brainDoctorRun.findUnique({ where: { id: req.params.id } });
+    if (!run) { res.status(404).json({ error: "Run não encontrado" }); return; }
+    res.json(run);
+  } catch (e: unknown) {
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+// ── Agent Run ──────────────────────────────────────────────────────────────────
+
 apiRoutes.post("/agent-run", async (req, res) => {
   try {
     const { project, goal, max_steps = 8, workdir, computer_agent_id } = req.body as {

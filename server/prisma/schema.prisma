@@ -327,6 +327,35 @@ model BrainDigest {
   @@map("brain_digests")
 }
 
+model BrainDoctorRun {
+  id          String    @id @default(cuid())
+  projectSlug String    @map("project_slug")
+  model       String
+  status      String    @default("running") // running | done | error
+  goal        String?
+  plan        Json?
+  steps       Json      @default("[]")
+  stats       Json      @default("{}")
+  summary     String?
+  error       String?
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@map("brain_doctor_runs")
+}
+
+model BrainDoctorConfig {
+  id        String   @id @default(cuid())
+  enabled   Boolean  @default(false)
+  frequency String   @default("weekly") // daily | weekly | biweekly | monthly
+  model     String   @default("gpt-4o")
+  projects  String[] @default([])
+  hour      Int      @default(3)        // UTC hour
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("brain_doctor_configs")
+}
+
 model AuditLog {
   id               String   @id @default(cuid())
   projectId        String?  @map("project_id")

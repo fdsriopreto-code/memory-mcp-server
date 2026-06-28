@@ -44,7 +44,8 @@ const Icon = {
   aiconfig:   <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.05 5.05l1.42 1.42M13.54 13.54l1.41 1.41M5.05 14.95l1.42-1.42M13.54 6.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="10" r="5" stroke="currentColor" strokeWidth="1" strokeDasharray="2 2"/></svg>,
 };
 
-const Icon_quiz = <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M7.5 8C7.5 6.619 8.619 5.5 10 5.5S12.5 6.619 12.5 8c0 1-1 1.5-1.5 2v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="13.5" r=".75" fill="currentColor"/></svg>;
+const Icon_quiz   = <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5"/><path d="M7.5 8C7.5 6.619 8.619 5.5 10 5.5S12.5 6.619 12.5 8c0 1-1 1.5-1.5 2v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="10" cy="13.5" r=".75" fill="currentColor"/></svg>;
+const Icon_doctor = <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M10 2c-2.5 0-4.5 2-4.5 4.5 0 1.8 1 3.3 2.5 4.1V12h4v-1.4c1.5-.8 2.5-2.3 2.5-4.1C14.5 4 12.5 2 10 2z" stroke="currentColor" strokeWidth="1.3"/><path d="M7.5 12v1a2.5 2.5 0 005 0v-1M10 7v3M8.5 8.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>;
 const Icon_capture = <svg fill="none" viewBox="0 0 20 20" className="w-4 h-4"><path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
 
 const NAV = [
@@ -61,6 +62,7 @@ const NAV = [
   { to: "/atlas",           label: "Atlas",       icon: Icon.atlas,     badge: "new"  },
   { to: "/knowledge-debt",  label: "Debt",        icon: Icon.debt,      badge: null   },
   { to: "/brain-health",    label: "Health",      icon: Icon.health,    badge: null   },
+  { to: "/brain-doctor",   label: "Brain Doctor",icon: Icon_doctor,    badge: "new"  },
   { to: "/jobs",            label: "Jobs",        icon: Icon.jobs,      badge: null   },
   { to: "/search",          label: "Busca",       icon: Icon.search,    badge: null   },
   { to: "/projects",        label: "Projetos",    icon: Icon.projects,  badge: null   },

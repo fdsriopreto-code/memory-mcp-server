@@ -15,4 +15,8 @@ export const env = {
   ENCRYPTION_KEY:  required("ENCRYPTION_KEY"),
   PORT:            Number(process.env.PORT ?? 3100),
   NODE_ENV:        process.env.NODE_ENV ?? "development",
+  // AI providers — optional (only needed if user selects that model)
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY?.trim() ?? "",
+  DEEPSEEK_API_KEY:  process.env.DEEPSEEK_API_KEY?.trim()  ?? "",
+  GOOGLE_AI_KEY:     process.env.GOOGLE_AI_KEY?.trim()     ?? "",
 };
