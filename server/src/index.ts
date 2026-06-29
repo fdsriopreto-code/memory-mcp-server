@@ -112,29 +112,43 @@ if (process.env.SERVE_FRONTEND === "true") {
 }
 
 async function runPendingMigrations() {
-  try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "brain_doctor_runs" (
+  // Each call must be a single statement — $executeRawUnsafe rejects multi-statement strings
+  const steps: Array<[string, string]> = [
+    [
+      "brain_doctor_runs",
+      `CREATE TABLE IF NOT EXISTS "brain_doctor_runs" (
         "id" TEXT NOT NULL PRIMARY KEY, "project_slug" TEXT NOT NULL, "model" TEXT NOT NULL,
         "status" TEXT NOT NULL DEFAULT 'running', "goal" TEXT, "plan" JSONB,
         "steps" JSONB NOT NULL DEFAULT '[]', "stats" JSONB NOT NULL DEFAULT '{}',
         "summary" TEXT, "error" TEXT,
         "started_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(), "completed_at" TIMESTAMPTZ
-      );
-      CREATE TABLE IF NOT EXISTS "brain_doctor_configs" (
+      )`,
+    ],
+    [
+      "brain_doctor_configs",
+      `CREATE TABLE IF NOT EXISTS "brain_doctor_configs" (
         "id" TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT PRIMARY KEY,
         "enabled" BOOLEAN NOT NULL DEFAULT FALSE, "frequency" TEXT NOT NULL DEFAULT 'weekly',
         "model" TEXT NOT NULL DEFAULT 'gpt-4o', "projects" TEXT[] NOT NULL DEFAULT '{}',
         "hour" INTEGER NOT NULL DEFAULT 3, "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      INSERT INTO "brain_doctor_configs" ("enabled","frequency","model","projects","hour","updated_at")
-      SELECT FALSE,'weekly','gpt-4o','{}',3,NOW()
-      WHERE NOT EXISTS (SELECT 1 FROM "brain_doctor_configs");
-    `);
-    console.log("[migrations] brain_doctor_runs + brain_doctor_configs OK");
-  } catch (e) {
-    console.warn("[migrations] Aviso:", (e as Error).message?.slice(0, 120));
+      )`,
+    ],
+    [
+      "brain_doctor_configs seed",
+      `INSERT INTO "brain_doctor_configs" ("enabled","frequency","model","projects","hour","updated_at")
+       SELECT FALSE,'weekly','gpt-4o','{}',3,NOW()
+       WHERE NOT EXISTS (SELECT 1 FROM "brain_doctor_configs")`,
+    ],
+  ];
+
+  for (const [name, sql] of steps) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch (e) {
+      console.warn(`[migrations] ${name}:`, (e as Error).message?.slice(0, 120));
+    }
   }
+  console.log("[migrations] brain_doctor_runs + brain_doctor_configs OK");
 }
 
 async function start() {

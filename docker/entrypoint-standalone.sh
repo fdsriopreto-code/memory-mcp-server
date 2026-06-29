@@ -55,12 +55,16 @@ mkdir -p /data 2>/dev/null || true
 chmod 777 /data 2>/dev/null || true
 
 # ── 4. Gera ou carrega segredos automáticos ───────────────────────────────────
+# Salva MCP_API_KEY do ambiente ANTES de qualquer sobreescrita pelo arquivo de segredos
+USER_MCP_KEY="$MCP_API_KEY"
+
 if touch /data/.test 2>/dev/null; then
   rm -f /data/.test
   SECRETS_FILE="/data/.secrets"
   KEY_FILE="/data/mcp-api-key.txt"
 else
   echo "⚠ Volume /data sem permissão de escrita, usando /tmp (segredos não persistem entre restarts)"
+  echo "  → Para chave estável: defina MCP_API_KEY como env var no EasyPanel"
   SECRETS_FILE="/tmp/.secrets"
   KEY_FILE="/tmp/mcp-api-key.txt"
 fi
@@ -69,7 +73,8 @@ if [ ! -f "$SECRETS_FILE" ]; then
   echo "🔑 Gerando segredos pela primeira vez..."
   DB_PASSWORD=$(openssl rand -hex 20)
   JWT_SECRET=$(openssl rand -hex 32)
-  MCP_API_KEY=$(openssl rand -hex 24)
+  # Usa MCP_API_KEY do ambiente se já definida; gera nova caso contrário
+  [ -z "$USER_MCP_KEY" ] && MCP_API_KEY=$(openssl rand -hex 24) || MCP_API_KEY="$USER_MCP_KEY"
   ENCRYPTION_KEY=$(openssl rand -hex 32)
 
   cat > "$SECRETS_FILE" << EOF
@@ -86,6 +91,13 @@ else
 fi
 
 . "$SECRETS_FILE"   # source compatível com /bin/sh
+
+# Se o usuário definiu MCP_API_KEY como env var fixa, ela sempre tem prioridade
+if [ -n "$USER_MCP_KEY" ]; then
+  MCP_API_KEY="$USER_MCP_KEY"
+  sed -i "s/^MCP_API_KEY=.*/MCP_API_KEY=${USER_MCP_KEY}/" "$SECRETS_FILE" 2>/dev/null || true
+  echo "🔑 MCP_API_KEY fixa do ambiente utilizada"
+fi
 
 # Só gera DATABASE_URL interno se não veio do ambiente externo
 if [ "$EXTERNAL_DB" = "false" ]; then
