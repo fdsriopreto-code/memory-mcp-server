@@ -162,20 +162,15 @@ hookRoutes.post("/git-learn", async (req, res) => {
       // Bug-fix commits → força tipo BUG_FIX quando AI retorna ARCHITECTURE
       const type = isBugFix && m.type === "ARCHITECTURE" ? ("BUG_FIX" as const) : m.type;
 
-      let embedding: number[] | null = null;
-      try { embedding = await getEmbedding(`${m.title} ${m.content}`); } catch {}
-
       const mem = await prisma.memory.create({
-        data: {
-          projectId: proj.id,
-          type,
-          title:     m.title,
-          content:   m.content,
-          tags:      m.tags,
-          importance: m.importance,
-          ...(embedding ? { embedding } : {}),
-        },
+        data: { projectId: proj.id, type, title: m.title, content: m.content, tags: m.tags, importance: m.importance },
       });
+      // Embedding via raw SQL (Unsupported("vector") não aceita no create)
+      try {
+        const emb = await getEmbedding(`${m.title} ${m.content}`);
+        const vec = `[${emb.join(",")}]`;
+        await prisma.$executeRaw`UPDATE memories SET embedding = ${vec}::vector WHERE id = ${mem.id}`;
+      } catch {}
       created.push({ id: mem.id, title: mem.title, type: mem.type });
     }
 
@@ -251,20 +246,15 @@ hookRoutes.post("/brain/learn", async (req, res) => {
 
     for (const m of extracted) {
       const memType = type ?? m.type;
-      let embedding: number[] | null = null;
-      try { embedding = await getEmbedding(`${m.title} ${m.content}`); } catch {}
-
       const mem = await prisma.memory.create({
-        data: {
-          projectId:  proj.id,
-          type:       memType,
-          title:      m.title,
-          content:    m.content,
-          tags:       m.tags,
-          importance: m.importance,
-          ...(embedding ? { embedding } : {}),
-        },
+        data: { projectId: proj.id, type: memType, title: m.title, content: m.content, tags: m.tags, importance: m.importance },
       });
+      // Embedding via raw SQL (Unsupported("vector") não aceita no create)
+      try {
+        const emb = await getEmbedding(`${m.title} ${m.content}`);
+        const vec = `[${emb.join(",")}]`;
+        await prisma.$executeRaw`UPDATE memories SET embedding = ${vec}::vector WHERE id = ${mem.id}`;
+      } catch {}
       created.push({ id: mem.id, title: mem.title, type: mem.type });
     }
 
