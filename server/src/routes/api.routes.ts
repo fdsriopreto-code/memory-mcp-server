@@ -8,6 +8,7 @@ import { getComputerAgents, sendToComputer } from "../ws.js";
 import { getLogBuffer } from "../logger.js";
 import { readdirSync, statSync } from "fs";
 import { join, extname, relative } from "path";
+import { AI_MODELS, getProviderKey } from "../services/ai-provider.service.js";
 
 export const apiRoutes = Router();
 apiRoutes.use(jwtAuth);
@@ -1570,7 +1571,6 @@ apiRoutes.delete("/chat-sessions", async (_req, res) => {
 // ── Brain Doctor ──────────────────────────────────────────────────────────────
 
 apiRoutes.get("/brain-doctor/models", (_req, res) => {
-  const { AI_MODELS, getProviderKey } = require("../services/ai-provider.service.js") as typeof import("../services/ai-provider.service.js");
   res.json(AI_MODELS.map(m => ({
     ...m,
     hasKey: !!getProviderKey(m.provider),
