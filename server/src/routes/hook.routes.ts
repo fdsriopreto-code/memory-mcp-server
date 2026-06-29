@@ -54,6 +54,20 @@ hookRoutes.post("/projects", async (req, res) => {
   }
 });
 
+// ── GET /hooks/projects ───────────────────────────────────────────────────────
+// Lista projetos disponíveis via MCP key — para ARIA poder listar projetos do brain
+hookRoutes.get("/projects", async (_req, res) => {
+  try {
+    const projects = await prisma.project.findMany({
+      select: { slug: true, name: true, description: true, color: true, createdAt: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ ok: true, projects, total: projects.length });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // ── GET /hooks/mcp-key/verify ─────────────────────────────────────────────────
 // Hook scripts chamam isso como auto-check de que a key está configurada
 hookRoutes.get("/mcp-key/verify", (_req, res) => {
