@@ -322,7 +322,7 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
         if (!started) {
           started = true;
           clearTimeout(timeout);
-          // Auto-start do computer agent embutido (2s de delay para o WS estar pronto)
+          // Auto-start do computer agent (2s de delay para o WS estar pronto)
           setTimeout(() => startLocalComputerAgent(cfg.port ?? 3100, mcpApiKey), 2_000);
           resolve({ ok: true });
         }
@@ -359,14 +359,22 @@ function isCmdBlocked(cmd: string): boolean {
   return BLOCKED_CMDS.some(b => l.includes(b));
 }
 
-function startLocalComputerAgent(port: number, mcpApiKey: string): void {
+function buildAgentWsUrl(serverUrl: string, mcpApiKey: string): string {
+  // Converte http(s)://host para ws(s)://host/ws?apikey=KEY
+  const wsBase = serverUrl.replace(/^http/, "ws").replace(/\/$/, "");
+  return `${wsBase}/ws?apikey=${encodeURIComponent(mcpApiKey)}`;
+}
+
+function startLocalComputerAgent(wsUrlOrPort: string | number, mcpApiKey?: string): void {
   if (localAgentTimer)  { clearTimeout(localAgentTimer); localAgentTimer = null; }
   if (localAgentWs)     { try { localAgentWs.close(); } catch {} localAgentWs = null; }
 
   const agentId = `desktop-${os.hostname()}`;
-  const wsUrl   = `ws://localhost:${port}/ws?apikey=${encodeURIComponent(mcpApiKey)}`;
+  const wsUrl   = typeof wsUrlOrPort === "number"
+    ? `ws://localhost:${wsUrlOrPort}/ws?apikey=${encodeURIComponent(mcpApiKey ?? "")}`
+    : wsUrlOrPort;
 
-  console.log(`[agent] Conectando como "${agentId}" em ws://localhost:${port}...`);
+  console.log(`[agent] Conectando como "${agentId}" → ${wsUrl.split("?")[0]}...`);
 
   const ws = new WebSocket(wsUrl);
   localAgentWs = ws;
@@ -448,7 +456,7 @@ function startLocalComputerAgent(port: number, mcpApiKey: string): void {
   ws.on("close", () => {
     console.log("[agent] Desconectado. Reconectando em 5s...");
     localAgentWs = null;
-    if (!isQuitting) localAgentTimer = setTimeout(() => startLocalComputerAgent(port, mcpApiKey), 5_000);
+    if (!isQuitting) localAgentTimer = setTimeout(() => startLocalComputerAgent(wsUrl), 5_000);
   });
 
   ws.on("error", (err: Error) => {
@@ -520,8 +528,11 @@ async function main() {
     // Primeira execução → wizard
     openSetup();
   } else if (cfg.mode === "vps") {
-    // VPS mode → abre direto
+    // VPS mode → abre direto e conecta o computer agent ao servidor remoto
     createMainWindow(cfg.serverUrl!);
+    if (cfg.mcpApiKey && cfg.serverUrl) {
+      setTimeout(() => startLocalComputerAgent(buildAgentWsUrl(cfg.serverUrl!, cfg.mcpApiKey!)), 3_000);
+    }
   } else {
     // Local mode → inicia servidor e abre
     console.log("[main] Iniciando servidor local...");

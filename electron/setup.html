@@ -301,6 +301,12 @@
         <input type="url" id="vps-url" placeholder="https://memory-mcp.seuservidor.easypanel.host" oninput="validateStep1()"/>
         <div class="hint">A URL deve abrir uma tela de login quando acessada no browser.</div>
       </div>
+
+      <div class="field">
+        <label>MCP API Key <span style="color:var(--red)">*</span></label>
+        <input type="password" id="vps-mcp-key" placeholder="Cole a MCP_API_KEY do seu servidor" oninput="validateStep1()"/>
+        <div class="hint">Encontre em EasyPanel → Variáveis de ambiente → <code>MCP_API_KEY</code>. Necessário para o agente desktop conectar automaticamente.</div>
+      </div>
     </div>
 
     <!-- Local mode -->
@@ -458,7 +464,8 @@
     let valid = false;
     if (mode === "vps") {
       const url = document.getElementById("vps-url").value.trim();
-      valid = url.startsWith("http");
+      const key = document.getElementById("vps-mcp-key").value.trim();
+      valid = url.startsWith("http") && key.length > 10;
     } else if (mode === "local") {
       const db  = document.getElementById("db-url").value.trim();
       const key = document.getElementById("openai-key").value.trim();
@@ -478,8 +485,9 @@
 
   // ── Save VPS config and launch ────────────────────────────────────
   function saveVpsAndLaunch() {
-    const url = document.getElementById("vps-url").value.trim();
-    ipc?.saveConfig({ mode: "vps", serverUrl: url });
+    const url    = document.getElementById("vps-url").value.trim();
+    const mcpKey = document.getElementById("vps-mcp-key").value.trim();
+    ipc?.saveConfig({ mode: "vps", serverUrl: url, mcpApiKey: mcpKey });
     ipc?.launch(url);
   }
 
