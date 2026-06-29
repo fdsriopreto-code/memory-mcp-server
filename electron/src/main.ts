@@ -298,9 +298,9 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
       REDIS_URL:          cfg.redisUrl ?? "",
     };
 
-    // Persiste JWT secret e MCP key (não regenerar ao reiniciar)
+    // Persiste JWT secret e MCP key (para não regenerar a cada restart)
     const existing = loadConfig();
-    if (!existing?.jwtSecret) {
+    if (!existing?.jwtSecret || !existing?.mcpApiKey) {
       saveConfig({ ...cfg, jwtSecret, mcpApiKey, setupDone: true });
     }
 
@@ -322,8 +322,8 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
         if (!started) {
           started = true;
           clearTimeout(timeout);
-          // Auto-start do computer agent (2s de delay para o WS estar pronto)
-          setTimeout(() => startLocalComputerAgent(cfg.port ?? 3100, mcpApiKey), 2_000);
+          // Auto-start do computer agent (5s de delay — WS precisa estar pronto)
+          setTimeout(() => startLocalComputerAgent(cfg.port ?? 3100, mcpApiKey), 5_000);
           resolve({ ok: true });
         }
       }
@@ -388,6 +388,7 @@ function startLocalComputerAgent(wsUrlOrPort: string | number, mcpApiKey?: strin
       cwd:      os.homedir(),
     }));
     console.log(`[agent] ✅ Registrado — "${agentId}"`);
+    tray?.setToolTip(`Memory MCP — 💻 Agente: ${agentId}`);
   });
 
   ws.on("message", (rawData: Buffer | string) => {
@@ -455,12 +456,13 @@ function startLocalComputerAgent(wsUrlOrPort: string | number, mcpApiKey?: strin
 
   ws.on("close", () => {
     console.log("[agent] Desconectado. Reconectando em 5s...");
+    tray?.setToolTip("Memory MCP — 💻 Agente desconectado (reconectando...)");
     localAgentWs = null;
     if (!isQuitting) localAgentTimer = setTimeout(() => startLocalComputerAgent(wsUrl), 5_000);
   });
 
   ws.on("error", (err: Error) => {
-    console.error("[agent] Erro WebSocket:", err.message);
+    console.error("[agent] Erro WebSocket:", err.message, "| URL:", wsUrl.split("?")[0]);
   });
 }
 
