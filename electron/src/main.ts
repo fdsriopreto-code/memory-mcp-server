@@ -6,6 +6,8 @@ import * as path  from "path";
 import * as fs    from "fs";
 import * as cp    from "child_process";
 import * as https from "https";
+import * as os    from "os";
+import { WebSocket } from "ws";
 
 // ── Paths ──────────────────────────────────────────────────────────────────────
 const CONFIG_PATH  = path.join(app.getPath("userData"), "config.json");
@@ -15,19 +17,20 @@ const SERVER_DIR   = app.isPackaged
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 interface Config {
-  mode:          "local" | "vps";
-  serverUrl?:    string;
-  databaseUrl?:  string;
-  openaiApiKey?: string;
-  tavilyApiKey?: string;
-  port?:         number;
-  adminEmail?:   string;
-  adminPassword?:string;
-  adminName?:    string;
-  setupDone?:    boolean;
-  jwtSecret?:    string;
-  mcpApiKey?:    string;
-  redisUrl?:     string;
+  mode:             "local" | "vps";
+  serverUrl?:       string;
+  databaseUrl?:     string;
+  openaiApiKey?:    string;
+  anthropicApiKey?: string;
+  tavilyApiKey?:    string;
+  port?:            number;
+  adminEmail?:      string;
+  adminPassword?:   string;
+  adminName?:       string;
+  setupDone?:       boolean;
+  jwtSecret?:       string;
+  mcpApiKey?:       string;
+  redisUrl?:        string;
 }
 
 function loadConfig(): Config | null {
@@ -45,11 +48,13 @@ function saveConfig(cfg: Config): void {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
-let mainWindow:  BrowserWindow | null = null;
-let setupWindow: BrowserWindow | null = null;
-let tray:        Tray          | null = null;
-let serverProc:  cp.ChildProcess | null = null;
-let isQuitting   = false;
+let mainWindow:       BrowserWindow    | null = null;
+let setupWindow:      BrowserWindow    | null = null;
+let tray:             Tray             | null = null;
+let serverProc:       cp.ChildProcess  | null = null;
+let localAgentWs:     WebSocket        | null = null;
+let localAgentTimer:  ReturnType<typeof setTimeout> | null = null;
+let isQuitting        = false;
 
 type UpdateInfo = { hasUpdate: boolean; currentVersion: string; latestVersion: string; downloadUrl: string; releaseUrl: string; releaseNotes: string };
 let cachedUpdateInfo: UpdateInfo | null = null;
@@ -274,25 +279,29 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
       return;
     }
 
+    const jwtSecret = cfg.jwtSecret  ?? generateSecret();
+    const mcpApiKey = cfg.mcpApiKey  ?? generateSecret();
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      DATABASE_URL:     cfg.databaseUrl,
-      OPENAI_API_KEY:   cfg.openaiApiKey,
-      JWT_SECRET:       generateSecret(),
-      MCP_API_KEY:      generateSecret(),
-      PORT:             String(cfg.port ?? 3100),
-      ELECTRON_MODE:    "true",
-      ADMIN_EMAIL:      cfg.adminEmail,
-      ADMIN_PASSWORD:   cfg.adminPassword,
-      ADMIN_NAME:       cfg.adminName,
-      TAVILY_API_KEY:   cfg.tavilyApiKey ?? "",
-      REDIS_URL:        cfg.redisUrl ?? "",
+      DATABASE_URL:       cfg.databaseUrl,
+      OPENAI_API_KEY:     cfg.openaiApiKey,
+      ANTHROPIC_API_KEY:  cfg.anthropicApiKey ?? "",
+      JWT_SECRET:         jwtSecret,
+      MCP_API_KEY:        mcpApiKey,
+      PORT:               String(cfg.port ?? 3100),
+      ELECTRON_MODE:      "true",
+      ADMIN_EMAIL:        cfg.adminEmail,
+      ADMIN_PASSWORD:     cfg.adminPassword,
+      ADMIN_NAME:         cfg.adminName,
+      TAVILY_API_KEY:     cfg.tavilyApiKey ?? "",
+      REDIS_URL:          cfg.redisUrl ?? "",
     };
 
-    // Persiste o JWT secret e MCP key no config (para não regenerar ao reiniciar)
+    // Persiste JWT secret e MCP key (não regenerar ao reiniciar)
     const existing = loadConfig();
     if (!existing?.jwtSecret) {
-      saveConfig({ ...cfg, jwtSecret: env.JWT_SECRET, mcpApiKey: env.MCP_API_KEY, setupDone: true } as any);
+      saveConfig({ ...cfg, jwtSecret, mcpApiKey, setupDone: true });
     }
 
     serverProc = cp.fork(serverIndex, [], {
@@ -309,10 +318,14 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
     serverProc.stdout?.on("data", (chunk) => {
       const line = chunk.toString();
       console.log("[server]", line.trim());
-      if (line.includes("listening") || line.includes("started") || line.includes("3100")) {
-        started = true;
-        clearTimeout(timeout);
-        resolve({ ok: true });
+      if (line.includes("listening") || line.includes("started") || line.includes("Rodando")) {
+        if (!started) {
+          started = true;
+          clearTimeout(timeout);
+          // Auto-start do computer agent embutido (2s de delay para o WS estar pronto)
+          setTimeout(() => startLocalComputerAgent(cfg.port ?? 3100, mcpApiKey), 2_000);
+          resolve({ ok: true });
+        }
       }
     });
 
@@ -334,6 +347,113 @@ async function startLocalServer(cfg: Config): Promise<{ ok: boolean; error?: str
 
 function generateSecret(): string {
   return require("crypto").randomBytes(32).toString("hex");
+}
+
+// ── Inline Computer Agent ─────────────────────────────────────────────────────
+// Conecta ao servidor local via WebSocket e expõe o terminal do desktop como
+// agente autônomo — sem processo filho externo, sem dependências extras.
+const BLOCKED_CMDS = ["rm -rf /", "format c:", "del /f /s /q c:\\", "shutdown /s", "mkfs"];
+
+function isCmdBlocked(cmd: string): boolean {
+  const l = cmd.toLowerCase();
+  return BLOCKED_CMDS.some(b => l.includes(b));
+}
+
+function startLocalComputerAgent(port: number, mcpApiKey: string): void {
+  if (localAgentTimer)  { clearTimeout(localAgentTimer); localAgentTimer = null; }
+  if (localAgentWs)     { try { localAgentWs.close(); } catch {} localAgentWs = null; }
+
+  const agentId = `desktop-${os.hostname()}`;
+  const wsUrl   = `ws://localhost:${port}/ws?apikey=${encodeURIComponent(mcpApiKey)}`;
+
+  console.log(`[agent] Conectando como "${agentId}" em ws://localhost:${port}...`);
+
+  const ws = new WebSocket(wsUrl);
+  localAgentWs = ws;
+
+  ws.on("open", () => {
+    ws.send(JSON.stringify({
+      type:     "computer_register",
+      agentId,
+      hostname: os.hostname(),
+      platform: process.platform,
+      cwd:      os.homedir(),
+    }));
+    console.log(`[agent] ✅ Registrado — "${agentId}"`);
+  });
+
+  ws.on("message", (rawData: Buffer | string) => {
+    try {
+      const msg = JSON.parse(rawData.toString()) as Record<string, unknown>;
+
+      if (msg.type === "computer_welcome") {
+        console.log(`[agent] ${msg.message}`);
+        return;
+      }
+
+      if (msg.type === "computer_command") {
+        const commandId = String(msg.commandId ?? "");
+        const command   = String(msg.command   ?? "");
+        const workdir   = String(msg.workdir   ?? os.homedir());
+
+        if (isCmdBlocked(command)) {
+          ws.send(JSON.stringify({ type: "computer_error", commandId, error: `Comando bloqueado: ${command}` }));
+          return;
+        }
+
+        console.log(`[agent] exec: ${command.slice(0, 80)}`);
+
+        const proc = cp.exec(command, { cwd: workdir, env: { ...process.env }, maxBuffer: 10 * 1024 * 1024 });
+
+        proc.stdout?.on("data", (chunk: Buffer) =>
+          ws.send(JSON.stringify({ type: "computer_output", commandId, chunk: chunk.toString() }))
+        );
+        proc.stderr?.on("data", (chunk: Buffer) =>
+          ws.send(JSON.stringify({ type: "computer_output", commandId, chunk: chunk.toString() }))
+        );
+        proc.on("close",  (code) => ws.send(JSON.stringify({ type: "computer_done",  commandId, exitCode: code ?? 0 })));
+        proc.on("error",  (err)  => ws.send(JSON.stringify({ type: "computer_error", commandId, error: err.message })));
+      }
+
+      if (msg.type === "computer_read_file") {
+        const commandId = String(msg.commandId ?? "");
+        const filePath  = String(msg.path      ?? "");
+        try {
+          const content = fs.readFileSync(path.resolve(filePath), "utf8");
+          ws.send(JSON.stringify({ type: "computer_output", commandId, chunk: content }));
+          ws.send(JSON.stringify({ type: "computer_done",   commandId, exitCode: 0  }));
+        } catch (e) {
+          ws.send(JSON.stringify({ type: "computer_error", commandId, error: String(e) }));
+        }
+      }
+
+      if (msg.type === "computer_write_file") {
+        const commandId = String(msg.commandId ?? "");
+        const filePath  = String(msg.path      ?? "");
+        const content   = String(msg.content   ?? "");
+        try {
+          fs.mkdirSync(path.dirname(path.resolve(filePath)), { recursive: true });
+          fs.writeFileSync(path.resolve(filePath), content, "utf8");
+          ws.send(JSON.stringify({ type: "computer_output", commandId, chunk: `Gravado: ${filePath}` }));
+          ws.send(JSON.stringify({ type: "computer_done",   commandId, exitCode: 0 }));
+        } catch (e) {
+          ws.send(JSON.stringify({ type: "computer_error", commandId, error: String(e) }));
+        }
+      }
+    } catch (e) {
+      console.error("[agent] Erro ao processar mensagem:", e);
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("[agent] Desconectado. Reconectando em 5s...");
+    localAgentWs = null;
+    if (!isQuitting) localAgentTimer = setTimeout(() => startLocalComputerAgent(port, mcpApiKey), 5_000);
+  });
+
+  ws.on("error", (err: Error) => {
+    console.error("[agent] Erro WebSocket:", err.message);
+  });
 }
 
 // ── IPC Handlers ───────────────────────────────────────────────────────────────
@@ -423,6 +543,8 @@ async function main() {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  if (localAgentTimer) { clearTimeout(localAgentTimer); localAgentTimer = null; }
+  try { localAgentWs?.close(); } catch {}
   serverProc?.kill();
 });
 

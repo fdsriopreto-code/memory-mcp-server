@@ -1,0 +1,47 @@
+#!/bin/sh
+# git hook: post-commit
+# Envia commits fix: automaticamente para o brain do memory-mcp-server.
+# Instale copiando para .git/hooks/post-commit e tornando executável.
+# Ou rode: sh memory-mcp-server/git-hooks/install.sh
+
+MCP_URL="${MCP_URL:-https://ferramentas-memory-mcp-server.m5mfeg.easypanel.host}"
+MCP_KEY="${MCP_KEY:-}"
+PROJECT="${MCP_PROJECT:-}"
+
+# Sem chave configurada → sai silenciosamente
+if [ -z "$MCP_KEY" ] || [ -z "$PROJECT" ]; then
+  exit 0
+fi
+
+# Lê a mensagem do último commit
+COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null)
+
+# Só processa commits fix:
+case "$COMMIT_MSG" in
+  fix:*|fix\(*\):*|FIX:*)
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+# Diff stat (arquivos alterados)
+DIFF_STAT=$(git diff --stat HEAD~1 HEAD 2>/dev/null | tail -5)
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+REPO_PATH=$(pwd)
+
+# Envia para o brain (fire-and-forget — não bloqueia o commit)
+curl -s -o /dev/null -w "" \
+  -X POST \
+  -H "Authorization: Bearer ${MCP_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"project\":       \"${PROJECT}\",
+    \"commitMessage\": \"${COMMIT_MSG}\",
+    \"diffStat\":      \"${DIFF_STAT}\",
+    \"branch\":        \"${BRANCH}\",
+    \"repoPath\":      \"${REPO_PATH}\"
+  }" \
+  "${MCP_URL}/hooks/git-learn" &
+
+exit 0

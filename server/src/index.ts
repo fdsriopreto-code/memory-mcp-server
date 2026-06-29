@@ -9,6 +9,7 @@ import { mcpAuth } from "./middleware/auth.js";
 import { handleMcpRequest } from "./server.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { apiRoutes } from "./routes/api.routes.js";
+import { hookRoutes } from "./routes/hook.routes.js";
 import { initWss } from "./ws.js";
 import { requestCtx } from "./context.js";
 import { patchConsole } from "./logger.js";
@@ -61,6 +62,7 @@ app.delete("/mcp", mcpAuth, (_req, res) => res.status(405).end());
 // ── REST API (painel frontend) ─────────────────────────────────────────────────
 app.use("/auth", authRoutes);
 app.use("/api", apiRateLimit, apiRoutes);
+app.use("/hooks", hookRoutes);
 
 // ── Health check ───────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {

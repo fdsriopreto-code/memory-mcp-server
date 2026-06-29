@@ -1651,8 +1651,8 @@ apiRoutes.get("/brain-doctor/runs/:id", async (req, res) => {
 
 apiRoutes.post("/agent-run", async (req, res) => {
   try {
-    const { project, goal, max_steps = 8, workdir, computer_agent_id } = req.body as {
-      project: string; goal: string; max_steps?: number; workdir?: string; computer_agent_id?: string;
+    const { project, goal, max_steps = 8, workdir, computer_agent_id, ai_model } = req.body as {
+      project: string; goal: string; max_steps?: number; workdir?: string; computer_agent_id?: string; ai_model?: string;
     };
     if (!project || !goal) { res.status(400).json({ error: "project e goal obrigatórios" }); return; }
 
@@ -1662,7 +1662,7 @@ apiRoutes.post("/agent-run", async (req, res) => {
 
     // Executa de forma async (fire and forget)
     const { runAgentAsync } = await import("../services/agent.runner.js");
-    runAgentAsync({ project, goal, max_steps, workdir, computer_agent_id }).catch(() => {});
+    runAgentAsync({ project, goal, max_steps, workdir, computer_agent_id, ai_model }).catch(() => {});
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

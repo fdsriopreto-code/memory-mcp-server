@@ -1,10 +1,25 @@
 import { prisma } from "../config/database.js";
 import { broadcast } from "../ws.js";
 import { sendToComputer, getComputerAgents } from "../ws.js";
-import OpenAI from "openai";
 import { extractMemoriesFromText } from "./ai.service.js";
+import { getModel, generateJSON, AI_MODELS } from "./ai-provider.service.js";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Seleciona o melhor modelo disponível automaticamente:
+// Claude Sonnet > GPT-4o > DeepSeek (prioriza Anthropic quando configurado)
+function pickBestModel(preferredId?: string) {
+  if (preferredId) {
+    const m = getModel(preferredId);
+    if (m) return m;
+  }
+  // Auto-select: prioriza Anthropic se chave disponível
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    const claude = AI_MODELS.find(m => m.id === "claude-sonnet-4-6");
+    if (claude) return claude;
+  }
+  // Fallback OpenAI
+  return AI_MODELS.find(m => m.id === "gpt-4o") ?? AI_MODELS[0];
+}
 
 async function webSearch(query: string, count = 5): Promise<string> {
   // Tavily (free 1000/mês — tavily.com) se configurado
@@ -73,15 +88,18 @@ async function fetchUrl(url: string): Promise<string> {
 }
 
 export interface AgentRunOptions {
-  project:           string;
-  goal:              string;
-  max_steps:         number;
-  workdir?:          string;
+  project:            string;
+  goal:               string;
+  max_steps:          number;
+  workdir?:           string;
   computer_agent_id?: string;
+  ai_model?:          string;  // ex: "claude-sonnet-4-6", "gpt-4o", "deepseek-chat"
 }
 
 export async function runAgentAsync(opts: AgentRunOptions): Promise<string> {
-  const { project, goal, max_steps, workdir, computer_agent_id } = opts;
+  const { project, goal, max_steps, workdir, computer_agent_id, ai_model } = opts;
+  const model = pickBestModel(ai_model);
+  console.log(`[agent-runner] Usando modelo: ${model.name} (${model.provider})`);
 
   const proj = await prisma.project.findUnique({ where: { slug: project } });
   if (!proj) return `Projeto "${project}" não encontrado.`;
@@ -101,39 +119,28 @@ export async function runAgentAsync(opts: AgentRunOptions): Promise<string> {
     `[${m.type} imp:${m.importance}] ${m.title}: ${m.content.slice(0, 150)}`
   ).join("\n");
 
-  broadcast("agent_run_start", { project, goal, maxSteps: max_steps });
+  broadcast("agent_run_start", { project, goal, maxSteps: max_steps, aiModel: model.name });
 
   // ── Plan ──────────────────────────────────────────────────────────────────
-  const planResp = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "system",
-        content: `Você é um agente de software autônomo. Dado o objetivo, crie um plano de execução.
+  const systemPrompt = `Você é um agente de software autônomo. Dado o objetivo, crie um plano de execução.
 Computador disponível: ${targetAgentId ? `Sim (${targetAgentId})` : "Não"}
 
 Tools disponíveis:
-- computer_exec: roda qualquer comando de terminal (git, npm, node, etc.)
+- computer_exec: roda qualquer comando de terminal (git, npm, node, python, etc.)
 - web_search: pesquisa na internet
-- web_fetch: acessa uma URL e extrai conteúdo
-- memory_add: salva conhecimento na memória
+- web_fetch: acessa uma URL e extrai conteúdo legível
+- memory_add: salva conhecimento importante na memória do projeto
 
 Retorne APENAS JSON: { "steps": [ { "id": 1, "tool": "nome_tool", "description": "o que faz", "command": "comando (se computer_exec)", "query": "query (se web_search)", "url": "url (se web_fetch)" } ] }
 
-Seja direto. Máximo ${max_steps} steps. Use computer_exec para operações no computador.`,
-      },
-      {
-        role: "user",
-        content: `Projeto: ${proj.name}\nObjetivo: ${goal}\nContexto do projeto:\n${memContext}\nDiretório de trabalho: ${workdir ?? "não especificado"}`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    max_tokens: 1000,
-  });
+Seja direto e prático. Máximo ${max_steps} steps. Use computer_exec para operações no terminal.`;
+
+  const userPrompt = `Projeto: ${proj.name}\nObjetivo: ${goal}\nContexto do projeto:\n${memContext}\nDiretório de trabalho: ${workdir ?? "não especificado"}`;
 
   let steps: { id: number; tool: string; description: string; command?: string; query?: string; url?: string }[] = [];
   try {
-    const parsed = JSON.parse(planResp.choices[0].message.content ?? "{}");
+    const planJson = await generateJSON({ model, systemPrompt, userPrompt });
+    const parsed = JSON.parse(planJson);
     steps = parsed.steps ?? [];
   } catch {
     return "❌ Não consegui criar um plano. Tente reformular o objetivo.";

@@ -1,6 +1,6 @@
 {
   "name": "memory-mcp-desktop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Memory MCP — Segundo cérebro persistente para o Claude",
   "author": "Memory MCP Contributors",
   "repository": {
@@ -9,25 +9,30 @@
   },
   "main": "dist/main.js",
   "scripts": {
-    "dev":        "tsc && electron .",
-    "build":      "tsc",
-    "dist:win":   "electron-builder --win --x64",
-    "dist:mac":   "electron-builder --mac",
+    "dev": "tsc && electron .",
+    "build": "tsc",
+    "dist:win": "electron-builder --win --x64",
+    "dist:mac": "electron-builder --mac",
     "dist:linux": "electron-builder --linux",
-    "dist:all":   "electron-builder --win --mac --linux"
+    "dist:all": "electron-builder --win --mac --linux"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ws": "^8.21.0"
+  },
   "devDependencies": {
-    "@types/node":      "^22.0.0",
-    "electron":         "^31.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
-    "typescript":       "^5.5.0"
+    "typescript": "^5.5.0"
   },
   "build": {
-    "appId":       "com.memory-mcp.desktop",
+    "appId": "com.memory-mcp.desktop",
     "productName": "Memory MCP",
-    "copyright":   "Memory MCP Contributors",
-    "directories": { "output": "release" },
+    "copyright": "Memory MCP Contributors",
+    "directories": {
+      "output": "release"
+    },
     "files": [
       "dist/**/*",
       "setup.html"
@@ -35,36 +40,46 @@
     "extraResources": [
       {
         "from": "../server/dist",
-        "to":   "server/dist"
+        "to": "server/dist"
       },
       {
         "from": "../server/node_modules",
-        "to":   "server/node_modules",
-        "filter": ["**/*", "!**/*.map"]
+        "to": "server/node_modules",
+        "filter": [
+          "**/*",
+          "!**/*.map"
+        ]
       },
       {
         "from": "../server/prisma",
-        "to":   "server/prisma"
+        "to": "server/prisma"
       }
     ],
     "win": {
-      "target":      [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "artifactName": "Memory-MCP-Setup-${version}.${ext}"
     },
     "mac": {
-      "target":      "dmg",
+      "target": "dmg",
       "artifactName": "Memory-MCP-${version}.${ext}"
     },
     "linux": {
-      "target":      "AppImage",
+      "target": "AppImage",
       "artifactName": "Memory-MCP-${version}.${ext}"
     },
     "nsis": {
-      "oneClick":                      false,
+      "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut":         true,
-      "createStartMenuShortcut":       true,
-      "installerHeaderIcon":           null
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerHeaderIcon": null
     }
   }
 }

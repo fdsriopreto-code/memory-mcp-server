@@ -41,6 +41,15 @@ const STATUS_COLORS: Record<string, string> = {
   error:    "rgba(239,68,68,0.15)",
 };
 
+const AI_MODEL_OPTIONS = [
+  { id: "",                    label: "🤖 Auto (melhor disponível)" },
+  { id: "claude-sonnet-4-6",  label: "🟣 Claude Sonnet 4.6"       },
+  { id: "claude-haiku-4-5",   label: "🟣 Claude Haiku 4.5"        },
+  { id: "gpt-4o",             label: "🟢 GPT-4o"                   },
+  { id: "gpt-4o-mini",        label: "🟢 GPT-4o Mini"              },
+  { id: "deepseek-chat",      label: "🔵 DeepSeek Chat"            },
+];
+
 export default function AgentRunPage() {
   const { subscribe } = useWs();
   const [projects, setProjects]     = useState<Project[]>([]);
@@ -48,6 +57,7 @@ export default function AgentRunPage() {
   const [goal, setGoal]             = useState("");
   const [maxSteps, setMaxSteps]     = useState(8);
   const [workdir, setWorkdir]       = useState("");
+  const [aiModel, setAiModel]       = useState("");
   const [run, setRun]               = useState<AgentRun | null>(null);
   const [loading, setLoading]       = useState(false);
   const [computers, setComputers]   = useState<{ agentId: string; hostname: string }[]>([]);
@@ -122,6 +132,7 @@ export default function AgentRunPage() {
     try {
       const result = await api.post<{ content: [{ text: string }] }>("/api/agent-run", {
         project, goal, max_steps: maxSteps, workdir: workdir || undefined,
+        ai_model: aiModel || undefined,
       });
       // Se não veio via WS, mostrar resultado
       if (result?.content?.[0]?.text) {
@@ -149,7 +160,7 @@ export default function AgentRunPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">🤖 Agent Run</h1>
-          <p className="text-sm text-white/40 mt-0.5">Loop autônomo: GPT-4o planeja e executa no seu computador</p>
+          <p className="text-sm text-white/40 mt-0.5">Loop autônomo — planeja e executa no seu computador</p>
         </div>
         {/* Computer status */}
         <div className="flex items-center gap-2">
@@ -187,6 +198,24 @@ export default function AgentRunPage() {
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-white/40 mb-1 block">Modelo de IA</label>
+            <select value={aiModel} onChange={e => setAiModel(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/10 text-white outline-none">
+              {AI_MODEL_OPTIONS.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-white/40 mb-1 block">Máximo de steps</label>
+            <input type="number" value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))}
+              min={1} max={20}
+              className="w-full px-3 py-2 rounded-xl text-sm bg-white/5 border border-white/10 text-white outline-none" />
+          </div>
+        </div>
+
         <div>
           <label className="text-xs text-white/40 mb-1 block">Objetivo</label>
           <textarea value={goal} onChange={e => setGoal(e.target.value)} rows={3}
@@ -205,10 +234,6 @@ export default function AgentRunPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div>
-            <label className="text-xs text-white/40 mb-1 block">Max steps: {maxSteps}</label>
-            <input type="range" min={1} max={20} value={maxSteps} onChange={e => setMaxSteps(Number(e.target.value))} className="w-32" />
-          </div>
           <button onClick={startAgent} disabled={loading || !goal.trim()}
             className="ml-auto px-6 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-40 flex items-center gap-2"
             style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff" }}>

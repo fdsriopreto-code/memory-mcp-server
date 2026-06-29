@@ -14,6 +14,7 @@ import { registerSurrealTools } from "./tools/brain_surreal.tools.js";
 import { registerAnchorTools } from "./tools/anchor.tools.js";
 import { registerGitTools } from "./tools/git.tools.js";
 import { registerBrain3Tools } from "./tools/brain3.tools.js";
+import { registerBrain4Tools } from "./tools/brain4.tools.js";
 import { registerComputerTools } from "./tools/computer.tools.js";
 import { registerAgentTools } from "./tools/agent.tools.js";
 
@@ -35,6 +36,7 @@ export function createMcpServer(): McpServer {
   registerAnchorTools(server);
   registerGitTools(server);
   registerBrain3Tools(server);
+  registerBrain4Tools(server);
   registerComputerTools(server);
   registerAgentTools(server);
 

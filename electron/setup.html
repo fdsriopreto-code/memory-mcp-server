@@ -322,7 +322,13 @@
       <div class="field">
         <label>OpenAI API Key <span style="color:var(--red)">*</span></label>
         <input type="password" id="openai-key" placeholder="sk-proj-..." oninput="validateStep1()"/>
-        <div class="hint">Usado para embeddings semânticos. <a onclick="openUrl('https://platform.openai.com/api-keys')">Gerar chave →</a></div>
+        <div class="hint">Usado para embeddings semânticos e agente GPT-4o. <a onclick="openUrl('https://platform.openai.com/api-keys')">Gerar chave →</a></div>
+      </div>
+
+      <div class="field">
+        <label>Anthropic API Key <span class="badge-optional">opcional</span></label>
+        <input type="password" id="anthropic-key" placeholder="sk-ant-api03-..."/>
+        <div class="hint">Usa modelos Claude (Sonnet, Haiku) no agente autônomo. <a onclick="openUrl('https://console.anthropic.com/settings/keys')">Gerar chave →</a></div>
       </div>
 
       <hr class="divider"/>
@@ -480,15 +486,16 @@
   // ── Start local server ────────────────────────────────────────────
   async function startServer() {
     const config = {
-      mode:          "local",
-      databaseUrl:   document.getElementById("db-url").value.trim(),
-      openaiApiKey:  document.getElementById("openai-key").value.trim(),
-      tavilyApiKey:  document.getElementById("tavily-key").value.trim(),
-      redisUrl:      document.getElementById("redis-url").value.trim(),
-      port:          parseInt(document.getElementById("local-port").value) || 3100,
-      adminName:     document.getElementById("admin-name").value.trim(),
-      adminEmail:    document.getElementById("admin-email").value.trim(),
-      adminPassword: document.getElementById("admin-password").value,
+      mode:             "local",
+      databaseUrl:      document.getElementById("db-url").value.trim(),
+      openaiApiKey:     document.getElementById("openai-key").value.trim(),
+      anthropicApiKey:  document.getElementById("anthropic-key").value.trim(),
+      tavilyApiKey:     document.getElementById("tavily-key").value.trim(),
+      redisUrl:         document.getElementById("redis-url").value.trim(),
+      port:             parseInt(document.getElementById("local-port").value) || 3100,
+      adminName:        document.getElementById("admin-name").value.trim(),
+      adminEmail:       document.getElementById("admin-email").value.trim(),
+      adminPassword:    document.getElementById("admin-password").value,
     };
 
     // Disable buttons
