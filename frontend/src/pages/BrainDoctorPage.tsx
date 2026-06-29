@@ -95,21 +95,23 @@ export default function BrainDoctorPage() {
   const [configDraft, setConfigDraft] = useState<DoctorConfig | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
 
-  // Load initial data
+  // Load initial data — cada chamada independente para não bloquear projetos/modelos
   useEffect(() => {
-    Promise.all([
-      api.get<AIModel[]>("/api/brain-doctor/models"),
-      api.get<{ slug: string; name: string }[]>("/api/projects"),
-      api.get<DoctorConfig>("/api/brain-doctor/config"),
-      api.get<DoctorRun[]>("/api/brain-doctor/runs"),
-    ]).then(([m, p, c, r]) => {
-      setModels(m);
-      setProjects(p);
-      setConfig(c);
-      setConfigDraft(c);
-      setRuns(r);
-      if (p.length) setSelProject(p[0].slug);
-    }).catch(() => {});
+    api.get<{ slug: string; name: string }[]>("/api/projects")
+      .then(p => { setProjects(p); if (p.length) setSelProject(p[0].slug); })
+      .catch(() => {});
+
+    api.get<AIModel[]>("/api/brain-doctor/models")
+      .then(setModels)
+      .catch(() => {});
+
+    api.get<DoctorConfig>("/api/brain-doctor/config")
+      .then(c => { setConfig(c); setConfigDraft(c); })
+      .catch(() => {}); // falha se migration não aplicada ainda
+
+    api.get<DoctorRun[]>("/api/brain-doctor/runs")
+      .then(setRuns)
+      .catch(() => {}); // falha se migration não aplicada ainda
   }, []);
 
   // Scroll log to bottom

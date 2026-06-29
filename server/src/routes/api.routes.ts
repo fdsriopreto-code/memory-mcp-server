@@ -1581,8 +1581,9 @@ apiRoutes.get("/brain-doctor/config", async (_req, res) => {
   try {
     const { getConfig } = await import("../workers/brain-doctor.scheduler.js");
     res.json(await getConfig());
-  } catch (e: unknown) {
-    res.status(500).json({ error: (e as Error).message });
+  } catch {
+    // tabela pode não existir ainda (migration pendente) — retorna default
+    res.json({ enabled: false, frequency: "weekly", model: "gpt-4o", projects: [], hour: 3 });
   }
 });
 
@@ -1630,8 +1631,9 @@ apiRoutes.get("/brain-doctor/runs", async (req, res) => {
       },
     });
     res.json(runs);
-  } catch (e: unknown) {
-    res.status(500).json({ error: (e as Error).message });
+  } catch {
+    // tabela pode não existir ainda (migration pendente)
+    res.json([]);
   }
 });
 
