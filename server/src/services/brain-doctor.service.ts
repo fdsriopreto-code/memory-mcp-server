@@ -280,7 +280,7 @@ Gere o plano de manutenção agora.`;
               const { enqueueJob } = await import("../services/queue.service.js") as {
                 enqueueJob: (data: unknown) => Promise<unknown>;
               };
-              await enqueueJob({ type: "synthesize", projectSlug });
+              await enqueueJob({ type: "synthesize", project_slug: projectSlug });
               stats.synthesized = true;
               result = "🔮 Síntese CRE enfileirada para execução";
             } catch {
