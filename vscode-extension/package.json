@@ -1,0 +1,133 @@
+{
+  "name": "memory-mcp-vscode",
+  "displayName": "Memory MCP — Segundo Cérebro",
+  "description": "Integração do Memory MCP Server com VS Code: status bar, sidebar de memórias e brain_session_start automático.",
+  "version": "1.0.0",
+  "publisher": "fdsriopreto",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Memory MCP",
+      "properties": {
+        "memory-mcp.serverUrl": {
+          "type": "string",
+          "default": "https://ferramentas-memory-mcp-server.m5mfeg.easypanel.host",
+          "description": "URL do Memory MCP Server"
+        },
+        "memory-mcp.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "MCP API Key (Authorization: Bearer ...)"
+        },
+        "memory-mcp.projectSlug": {
+          "type": "string",
+          "default": "",
+          "description": "Slug do projeto (deixe vazio para auto-detectar pelo nome da pasta)"
+        },
+        "memory-mcp.autoSessionStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Chamar brain_session_start automaticamente ao abrir o workspace"
+        },
+        "memory-mcp.pollInterval": {
+          "type": "number",
+          "default": 60,
+          "description": "Intervalo em segundos para atualizar o status bar"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "memory-mcp.sessionStart",
+        "title": "🧠 Brain: Iniciar Sessão (brain_session_start)",
+        "category": "Memory MCP"
+      },
+      {
+        "command": "memory-mcp.addMemory",
+        "title": "🧠 Brain: Salvar Memória do Texto Selecionado",
+        "category": "Memory MCP"
+      },
+      {
+        "command": "memory-mcp.searchMemories",
+        "title": "🧠 Brain: Buscar Memórias",
+        "category": "Memory MCP"
+      },
+      {
+        "command": "memory-mcp.openBrainDoctor",
+        "title": "🧠 Brain: Abrir Brain Doctor no Browser",
+        "category": "Memory MCP"
+      },
+      {
+        "command": "memory-mcp.refreshSidebar",
+        "title": "Atualizar",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "memory-mcp",
+          "title": "Memory MCP",
+          "icon": "$(brain)"
+        }
+      ]
+    },
+    "views": {
+      "memory-mcp": [
+        {
+          "type": "webview",
+          "id": "memory-mcp.sidebar",
+          "name": "Segundo Cérebro"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "memory-mcp.addMemory",
+          "when": "editorHasSelection",
+          "group": "memory-mcp"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "memory-mcp.refreshSidebar",
+          "when": "view == memory-mcp.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "memory-mcp.searchMemories",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      },
+      {
+        "command": "memory-mcp.sessionStart",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "^1.125.0",
+    "typescript": "^5.9.3"
+  }
+}
