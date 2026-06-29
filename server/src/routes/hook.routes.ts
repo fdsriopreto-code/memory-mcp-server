@@ -16,12 +16,15 @@ hookRoutes.use(mcpAuth);
 
 // Mapa de segmentos de caminho → slug do projeto
 const PATH_MAP: Record<string, string> = {
-  "ilemanager":        "ilemanager",
-  "back-ilemanager":   "ilemanager",
-  "front-ilemanager":  "ilemanager",
-  "admin-ilemanager":  "ilemanager",
-  "memory-mcp-server": "memory-mcp-server",
-  "front-tarot":       "front-tarot",
+  "ilemanager":          "ilemanager",
+  "back-ilemanager":     "ilemanager",
+  "front-ilemanager":    "ilemanager",
+  "admin-ilemanager":    "ilemanager",
+  "memory-mcp-server":   "memory-mcp-server",
+  "front-tarot":         "front-tarot",
+  "back-aistudio-code":  "aistudio-code",
+  "front-aistudio-code": "aistudio-code",
+  "aistudio-code":       "aistudio-code",
 };
 
 function detectProject(cwd: string): string | null {
@@ -158,6 +161,135 @@ hookRoutes.post("/git-learn", async (req, res) => {
     }
 
     res.json({ ok: true, memoriesCreated: created.length, isBugFix, memories: created });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── POST /hooks/brain/search ───────────────────────────────────────────────────
+// Busca semântica nas memórias — usada por serviços externos (ex: aistudio-code)
+// Body: { project, query, limit? }
+hookRoutes.post("/brain/search", async (req, res) => {
+  try {
+    const { project, query, limit = 8 } = req.body ?? {};
+    if (!project || !query) {
+      res.status(400).json({ error: "project e query são obrigatórios" });
+      return;
+    }
+
+    const proj = await prisma.project.findUnique({ where: { slug: project } });
+    if (!proj) { res.status(404).json({ error: `Projeto "${project}" não encontrado` }); return; }
+
+    // Tenta busca semântica por embedding; fallback para texto
+    let memories: { title: string; content: string; type: string; tags: string[]; importance: number }[] = [];
+    try {
+      const emb = await getEmbedding(query);
+      const rows = await prisma.$queryRaw<{ id: string; title: string; content: string; type: string; tags: string[]; importance: number }[]>`
+        SELECT id, title, content, type, tags, importance
+        FROM memories
+        WHERE project_id = ${proj.id}
+        ORDER BY embedding <=> ${JSON.stringify(emb)}::vector
+        LIMIT ${Number(limit)}
+      `;
+      memories = rows;
+    } catch {
+      memories = await prisma.memory.findMany({
+        where: {
+          projectId: proj.id,
+          OR: [
+            { title: { contains: query, mode: "insensitive" } },
+            { content: { contains: query, mode: "insensitive" } },
+          ],
+        },
+        orderBy: [{ importance: "desc" }, { createdAt: "desc" }],
+        take: Number(limit),
+        select: { title: true, content: true, type: true, tags: true, importance: true },
+      });
+    }
+
+    res.json({ memories, count: memories.length });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── POST /hooks/brain/learn ────────────────────────────────────────────────────
+// Extrai e salva memórias de um texto (sessão de trabalho, conversa, etc.)
+// Body: { project, text, type? }
+hookRoutes.post("/brain/learn", async (req, res) => {
+  try {
+    const { project, text, type } = req.body ?? {};
+    if (!project || !text) {
+      res.status(400).json({ error: "project e text são obrigatórios" });
+      return;
+    }
+
+    const proj = await prisma.project.findUnique({ where: { slug: project } });
+    if (!proj) { res.status(404).json({ error: `Projeto "${project}" não encontrado` }); return; }
+
+    const extracted = await extractMemoriesFromText(text, proj.name);
+    const created: { id: string; title: string; type: string }[] = [];
+
+    for (const m of extracted) {
+      const memType = type ?? m.type;
+      let embedding: number[] | null = null;
+      try { embedding = await getEmbedding(`${m.title} ${m.content}`); } catch {}
+
+      const mem = await prisma.memory.create({
+        data: {
+          projectId:  proj.id,
+          type:       memType,
+          title:      m.title,
+          content:    m.content,
+          tags:       m.tags,
+          importance: m.importance,
+          ...(embedding ? { embedding } : {}),
+        },
+      });
+      created.push({ id: mem.id, title: mem.title, type: mem.type });
+    }
+
+    res.json({ ok: true, memoriesCreated: created.length, memories: created });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── GET /hooks/brain/context ───────────────────────────────────────────────────
+// Retorna contexto resumido do projeto para injetar no system prompt de serviços externos
+// Query params: project (slug)
+hookRoutes.get("/brain/context", async (req, res) => {
+  try {
+    const project = typeof req.query.project === "string" ? req.query.project : "";
+    if (!project) { res.status(400).json({ error: "project é obrigatório" }); return; }
+
+    const proj = await prisma.project.findUnique({ where: { slug: project } });
+    if (!proj) { res.status(404).json({ error: `Projeto "${project}" não encontrado` }); return; }
+
+    const [pinned, tasks, recentMems] = await Promise.all([
+      prisma.memory.findMany({
+        where: { projectId: proj.id, isPinned: true },
+        orderBy: [{ importance: "desc" }],
+        take: 8,
+        select: { type: true, title: true, content: true, importance: true },
+      }),
+      prisma.task.findMany({
+        where: { projectId: proj.id, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+        take: 6,
+        select: { title: true, priority: true, status: true },
+      }),
+      prisma.memory.findMany({
+        where: { projectId: proj.id },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { type: true, title: true, content: true },
+      }),
+    ]);
+
+    const total = await prisma.memory.count({ where: { projectId: proj.id } });
+
+    res.json({ project: proj.slug, name: proj.name, total, pinned, tasks, recentMems });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
