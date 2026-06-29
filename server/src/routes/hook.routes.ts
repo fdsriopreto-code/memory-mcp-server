@@ -35,6 +35,25 @@ function detectProject(cwd: string): string | null {
   return null;
 }
 
+// ── POST /hooks/projects ──────────────────────────────────────────────────────
+// Cria projeto via MCP key (sem JWT) — para bootstrap de novos projetos
+hookRoutes.post("/projects", async (req, res) => {
+  try {
+    const { name, slug, description, color } = req.body ?? {};
+    if (!name || !slug) { res.status(400).json({ error: "name e slug são obrigatórios" }); return; }
+
+    const existing = await prisma.project.findUnique({ where: { slug } });
+    if (existing) { res.json({ ok: true, created: false, project: existing, message: "Projeto já existe" }); return; }
+
+    const project = await prisma.project.create({
+      data: { name, slug, description: description ?? null, color: color ?? "#6366f1" },
+    });
+    res.status(201).json({ ok: true, created: true, project });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 // ── GET /hooks/mcp-key/verify ─────────────────────────────────────────────────
 // Hook scripts chamam isso como auto-check de que a key está configurada
 hookRoutes.get("/mcp-key/verify", (_req, res) => {
