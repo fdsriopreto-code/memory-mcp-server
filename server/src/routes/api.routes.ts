@@ -43,6 +43,36 @@ apiRoutes.get("/projects/:slug", async (req, res) => {
   res.json(project);
 });
 
+apiRoutes.patch("/projects/:slug", async (req, res) => {
+  try {
+    const { name, description, color } = req.body as { name?: string; description?: string; color?: string };
+    const project = await prisma.project.update({
+      where: { slug: req.params.slug },
+      data: {
+        ...(name        !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(color       !== undefined && { color }),
+      },
+    });
+    broadcast("refresh", { resource: "project" });
+    res.json(project);
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : "Erro" });
+  }
+});
+
+apiRoutes.delete("/projects/:slug", async (req, res) => {
+  try {
+    const proj = await prisma.project.findUnique({ where: { slug: req.params.slug } });
+    if (!proj) { res.status(404).json({ error: "Não encontrado" }); return; }
+    await prisma.project.delete({ where: { slug: req.params.slug } });
+    broadcast("refresh", { resource: "project" });
+    res.json({ ok: true });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : "Erro ao deletar projeto" });
+  }
+});
+
 // ── Conexões ──────────────────────────────────────────────────────────────────
 apiRoutes.post("/projects/:slug/connections", async (req, res) => {
   try {

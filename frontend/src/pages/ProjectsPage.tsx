@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
 import { toast } from "sonner";
 import { useWs } from "../contexts/WsContext";
@@ -43,12 +43,100 @@ function ConnectionBadge({ conn, onDelete }: { conn: Connection; onDelete: (id: 
   );
 }
 
+// ── Edit Modal ────────────────────────────────────────────────────────────────
+function EditProjectModal({ project, onClose, onSaved }: {
+  project: Project; onClose: () => void; onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ name: project.name, description: project.description ?? "", color: project.color });
+  const [saving, setSaving] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.patch(`/api/projects/${project.slug}`, form);
+      toast.success("Projeto atualizado!");
+      onSaved();
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar");
+    } finally { setSaving(false); }
+  }
+
+  const inputCls = "w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all focus:ring-2 focus:ring-indigo-500/30";
+  const inputStyle = { background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" };
+
+  return (
+    <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      onClick={e => { if (e.target === overlayRef.current) onClose(); }}>
+      <div className="w-full max-w-md rounded-2xl p-6 space-y-5"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow-glow)" }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Avatar name={form.name || "P"} color={form.color} />
+            <h2 className="text-base font-bold" style={{ color: "var(--text-1)" }}>Editar projeto</h2>
+          </div>
+          <button onClick={onClose} style={{ color: "var(--text-3)" }}>
+            <svg fill="none" viewBox="0 0 16 16" className="w-4 h-4"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-2)" }}>Nome *</label>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              required className={inputCls} style={inputStyle} placeholder="Nome do projeto" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-2)" }}>Descrição</label>
+            <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              className={inputCls} style={inputStyle} placeholder="Descrição opcional…" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-2)" }}>Cor</label>
+            <div className="flex items-center gap-3">
+              {COLORS.map(c => (
+                <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
+                  className="w-6 h-6 rounded-full transition-transform hover:scale-110"
+                  style={{ background: c, outline: form.color === c ? `2px solid ${c}` : "none", outlineOffset: "2px" }} />
+              ))}
+              <input type="color" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+                className="w-6 h-6 rounded-full cursor-pointer border-0 p-0 bg-transparent" />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={saving}
+              className="flex-1 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+              style={{ background: `linear-gradient(135deg, ${form.color}, ${form.color}bb)` }}>
+              {saving ? "Salvando…" : "Salvar alterações"}
+            </button>
+            <button type="button" onClick={onClose}
+              className="px-5 py-2 rounded-xl text-sm"
+              style={{ background: "var(--bg-elevated)", color: "var(--text-2)" }}>Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Project Card ──────────────────────────────────────────────────────────────
 function ProjectCardView({ project, onRefresh }: { project: Project; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loadingConns, setLoadingConns] = useState(false);
   const [showConnForm, setShowConnForm] = useState(false);
   const [connForm, setConnForm] = useState({ name: "", type: "POSTGRES", connectionString: "" });
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function loadConnections() {
     setLoadingConns(true);
@@ -82,146 +170,214 @@ function ProjectCardView({ project, onRefresh }: { project: Project; onRefresh: 
     toast.success("Removida");
   }
 
+  async function handleDelete() {
+    if (!confirm(`Deletar o projeto "${project.name}"?\n\nIsso irá remover TODAS as memórias, tasks e conexões. Essa ação não pode ser desfeita.`)) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/api/projects/${project.slug}`);
+      toast.success("Projeto deletado");
+      onRefresh();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro ao deletar");
+      setDeleting(false);
+    }
+  }
+
   const total = project._count.memories + project._count.tasks;
 
   return (
-    <div className="rounded-2xl overflow-hidden group transition-all duration-200 hover:-translate-y-0.5"
-      style={{
-        background: "var(--bg-card)",
-        border: "1px solid var(--border)",
-        boxShadow: "var(--shadow-card)",
-      }}>
-      {/* Gradient header */}
-      <div className="h-2" style={{ background: `linear-gradient(90deg, ${project.color}, ${project.color}88)` }} />
+    <>
+      {showEdit && (
+        <EditProjectModal project={project} onClose={() => setShowEdit(false)} onSaved={onRefresh} />
+      )}
 
-      <div className="p-5">
-        <div className="flex items-start gap-3">
-          <Avatar name={project.name} color={project.color} size="md" />
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-base leading-tight" style={{ color: "var(--text-1)" }}>{project.name}</p>
-            <p className="text-[11px] font-mono mt-0.5" style={{ color: "var(--text-3)" }}>/{project.slug}</p>
-            {project.description && (
-              <p className="text-xs mt-1.5 leading-relaxed line-clamp-2" style={{ color: "var(--text-2)" }}>{project.description}</p>
-            )}
-          </div>
-        </div>
+      <div className="rounded-2xl overflow-hidden group transition-all duration-200 hover:-translate-y-0.5"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-card)" }}>
+        <div className="h-2" style={{ background: `linear-gradient(90deg, ${project.color}, ${project.color}88)` }} />
 
-        {/* Stats */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {[
-            { label: "Memórias", value: project._count.memories, icon: "◉" },
-            { label: "Tasks",    value: project._count.tasks,    icon: "✓" },
-            { label: "Writes",   value: project._count.writeRequests, icon: "✎" },
-          ].map(s => (
-            <div key={s.label} className="rounded-xl py-2 px-3 text-center"
-              style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
-              <p className="text-lg font-bold" style={{ color: "var(--text-1)" }}>{s.value}</p>
-              <p className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: "var(--text-3)" }}>{s.label}</p>
+        <div className="p-5">
+          <div className="flex items-start gap-3">
+            <Avatar name={project.name} color={project.color} size="md" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-base leading-tight" style={{ color: "var(--text-1)" }}>{project.name}</p>
+              <p className="text-[11px] font-mono mt-0.5" style={{ color: "var(--text-3)" }}>/{project.slug}</p>
+              {project.description && (
+                <p className="text-xs mt-1.5 leading-relaxed line-clamp-2" style={{ color: "var(--text-2)" }}>{project.description}</p>
+              )}
             </div>
-          ))}
+
+            {/* Actions */}
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <button onClick={() => setShowEdit(true)} title="Editar"
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
+                style={{ color: "var(--text-3)" }}>
+                <svg fill="none" viewBox="0 0 16 16" className="w-3.5 h-3.5">
+                  <path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button onClick={handleDelete} disabled={deleting} title="Deletar"
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-red-500/20 disabled:opacity-40"
+                style={{ color: "#ef4444" }}>
+                <svg fill="none" viewBox="0 0 16 16" className="w-3.5 h-3.5">
+                  <path d="M3 5h10M6 5V3h4v2M6 7v5M10 7v5M4 5l1 8h6l1-8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {[
+              { label: "Memórias", value: project._count.memories, icon: "◉" },
+              { label: "Tasks",    value: project._count.tasks,    icon: "✓" },
+              { label: "Writes",   value: project._count.writeRequests, icon: "✎" },
+            ].map(s => (
+              <div key={s.label} className="rounded-xl py-2 px-3 text-center"
+                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}>
+                <p className="text-lg font-bold" style={{ color: "var(--text-1)" }}>{s.value}</p>
+                <p className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: "var(--text-3)" }}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {total > 0 && (
+            <div className="mt-3 h-1 rounded-full overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
+              <div className="h-full rounded-full"
+                style={{
+                  width: `${Math.min(100, (project._count.memories / Math.max(total,1)) * 100)}%`,
+                  background: `linear-gradient(90deg, ${project.color}, ${project.color}88)`,
+                }} />
+            </div>
+          )}
+
+          <button onClick={handleExpand}
+            className="mt-3 flex items-center gap-1.5 text-xs transition-colors"
+            style={{ color: expanded ? project.color : "var(--text-3)" }}>
+            <svg fill="none" viewBox="0 0 14 14" className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}>
+              <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span>Conexões</span>
+            {connections.length > 0 && (
+              <span className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                style={{ background: `${project.color}22`, color: project.color }}>{connections.length}</span>
+            )}
+          </button>
         </div>
 
-        {/* Activity bar */}
-        {total > 0 && (
-          <div className="mt-3 h-1 rounded-full overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
-            <div className="h-full rounded-full"
-              style={{
-                width: `${Math.min(100, (project._count.memories / Math.max(total,1)) * 100)}%`,
-                background: `linear-gradient(90deg, ${project.color}, ${project.color}88)`,
-              }} />
+        {expanded && (
+          <div className="px-5 pb-5 space-y-2 border-t" style={{ borderColor: "var(--border)" }}>
+            <div className="pt-3 space-y-2">
+              {loadingConns && <p className="text-xs" style={{ color: "var(--text-3)" }}>Carregando...</p>}
+              {connections.map(c => <ConnectionBadge key={c.id} conn={c} onDelete={deleteConn} />)}
+              {!loadingConns && connections.length === 0 && !showConnForm && (
+                <p className="text-xs" style={{ color: "var(--text-3)" }}>Sem conexões configuradas.</p>
+              )}
+            </div>
+            {showConnForm ? (
+              <form onSubmit={addConnection} className="space-y-2 mt-2">
+                <input value={connForm.name} onChange={e => setConnForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Nome da conexão" required
+                  className="w-full px-3 py-2 rounded-xl text-xs outline-none"
+                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" }} />
+                <div className="flex gap-2">
+                  <select value={connForm.type} onChange={e => setConnForm(f => ({ ...f, type: e.target.value }))}
+                    className="flex-1 px-3 py-2 rounded-xl text-xs outline-none"
+                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" }}>
+                    {["POSTGRES","MYSQL","REDIS","HTTP"].map(t => <option key={t}>{t}</option>)}
+                  </select>
+                  <input value={connForm.connectionString} onChange={e => setConnForm(f => ({ ...f, connectionString: e.target.value }))}
+                    placeholder="Connection string" required
+                    className="flex-[2] px-3 py-2 rounded-xl text-xs outline-none"
+                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" }} />
+                </div>
+                <div className="flex gap-2">
+                  <button type="submit" className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white"
+                    style={{ background: project.color }}>Adicionar</button>
+                  <button type="button" onClick={() => setShowConnForm(false)}
+                    className="px-4 py-1.5 rounded-lg text-xs"
+                    style={{ background: "var(--bg-elevated)", color: "var(--text-2)" }}>Cancelar</button>
+                </div>
+              </form>
+            ) : (
+              <button onClick={() => setShowConnForm(true)}
+                className="text-xs flex items-center gap-1 mt-1 font-medium"
+                style={{ color: project.color }}>
+                + Adicionar conexão
+              </button>
+            )}
           </div>
         )}
-
-        {/* Connections toggle */}
-        <button onClick={handleExpand}
-          className="mt-3 flex items-center gap-1.5 text-xs transition-colors"
-          style={{ color: expanded ? project.color : "var(--text-3)" }}>
-          <svg fill="none" viewBox="0 0 14 14" className={`w-3.5 h-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}>
-            <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span>Conexões</span>
-          {connections.length > 0 && (
-            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-              style={{ background: `${project.color}22`, color: project.color }}>{connections.length}</span>
-          )}
-        </button>
       </div>
-
-      {expanded && (
-        <div className="px-5 pb-5 space-y-2 border-t" style={{ borderColor: "var(--border)" }}>
-          <div className="pt-3 space-y-2">
-            {loadingConns && <p className="text-xs" style={{ color: "var(--text-3)" }}>Carregando...</p>}
-            {connections.map(c => <ConnectionBadge key={c.id} conn={c} onDelete={deleteConn} />)}
-            {!loadingConns && connections.length === 0 && !showConnForm && (
-              <p className="text-xs" style={{ color: "var(--text-3)" }}>Sem conexões configuradas.</p>
-            )}
-          </div>
-
-          {showConnForm ? (
-            <form onSubmit={addConnection} className="space-y-2 mt-2">
-              <input value={connForm.name} onChange={e => setConnForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="Nome da conexão" required
-                className="w-full px-3 py-2 rounded-xl text-xs outline-none"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" }} />
-              <div className="flex gap-2">
-                <select value={connForm.type} onChange={e => setConnForm(f => ({ ...f, type: e.target.value }))}
-                  className="flex-1 px-3 py-2 rounded-xl text-xs outline-none"
-                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" }}>
-                  {["POSTGRES","MYSQL","REDIS","HTTP"].map(t => <option key={t}>{t}</option>)}
-                </select>
-                <input value={connForm.connectionString} onChange={e => setConnForm(f => ({ ...f, connectionString: e.target.value }))}
-                  placeholder="Connection string" required
-                  className="flex-[2] px-3 py-2 rounded-xl text-xs outline-none"
-                  style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-strong)", color: "var(--text-1)" }} />
-              </div>
-              <div className="flex gap-2">
-                <button type="submit" className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white"
-                  style={{ background: project.color }}>Adicionar</button>
-                <button type="button" onClick={() => setShowConnForm(false)}
-                  className="px-4 py-1.5 rounded-lg text-xs"
-                  style={{ background: "var(--bg-elevated)", color: "var(--text-2)" }}>Cancelar</button>
-              </div>
-            </form>
-          ) : (
-            <button onClick={() => setShowConnForm(true)}
-              className="text-xs flex items-center gap-1 mt-1 font-medium"
-              style={{ color: project.color }}>
-              + Adicionar conexão
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
-function ProjectListRow({ project }: { project: Project }) {
+// ── Project List Row ──────────────────────────────────────────────────────────
+function ProjectListRow({ project, onRefresh }: { project: Project; onRefresh: () => void }) {
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!confirm(`Deletar "${project.name}"? Isso remove TODAS as memórias e tasks.`)) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/api/projects/${project.slug}`);
+      toast.success("Projeto deletado");
+      onRefresh();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro");
+      setDeleting(false);
+    }
+  }
+
   return (
-    <div className="flex items-center gap-4 px-4 py-3 rounded-xl group transition-all duration-150 hover:-translate-x-0.5"
-      style={{ background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-card)" }}>
-      <div className="w-1 self-stretch rounded-full" style={{ background: project.color }} />
-      <Avatar name={project.name} color={project.color} size="sm" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold" style={{ color: "var(--text-1)" }}>{project.name}</p>
-        <p className="text-[11px] font-mono" style={{ color: "var(--text-3)" }}>/{project.slug}</p>
-      </div>
-      {project.description && (
-        <p className="text-xs truncate max-w-[200px] hidden lg:block" style={{ color: "var(--text-2)" }}>{project.description}</p>
+    <>
+      {showEdit && (
+        <EditProjectModal project={project} onClose={() => setShowEdit(false)} onSaved={onRefresh} />
       )}
-      <div className="flex items-center gap-4 shrink-0 ml-auto">
-        <div className="text-center">
-          <p className="text-sm font-bold" style={{ color: "var(--text-1)" }}>{project._count.memories}</p>
-          <p className="text-[10px]" style={{ color: "var(--text-3)" }}>mem.</p>
+      <div className="flex items-center gap-4 px-4 py-3 rounded-xl group transition-all duration-150 hover:-translate-x-0.5"
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-card)" }}>
+        <div className="w-1 self-stretch rounded-full" style={{ background: project.color }} />
+        <Avatar name={project.name} color={project.color} size="sm" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold" style={{ color: "var(--text-1)" }}>{project.name}</p>
+          <p className="text-[11px] font-mono" style={{ color: "var(--text-3)" }}>/{project.slug}</p>
         </div>
-        <div className="text-center">
-          <p className="text-sm font-bold" style={{ color: "var(--text-1)" }}>{project._count.tasks}</p>
-          <p className="text-[10px]" style={{ color: "var(--text-3)" }}>tasks</p>
+        {project.description && (
+          <p className="text-xs truncate max-w-[200px] hidden lg:block" style={{ color: "var(--text-2)" }}>{project.description}</p>
+        )}
+        <div className="flex items-center gap-4 shrink-0">
+          <div className="text-center">
+            <p className="text-sm font-bold" style={{ color: "var(--text-1)" }}>{project._count.memories}</p>
+            <p className="text-[10px]" style={{ color: "var(--text-3)" }}>mem.</p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-bold" style={{ color: "var(--text-1)" }}>{project._count.tasks}</p>
+            <p className="text-[10px]" style={{ color: "var(--text-3)" }}>tasks</p>
+          </div>
+        </div>
+        {/* Row actions */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+          <button onClick={() => setShowEdit(true)} title="Editar"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
+            style={{ color: "var(--text-3)" }}>
+            <svg fill="none" viewBox="0 0 16 16" className="w-3.5 h-3.5">
+              <path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button onClick={handleDelete} disabled={deleting} title="Deletar"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-red-500/20 disabled:opacity-40"
+            style={{ color: "#ef4444" }}>
+            <svg fill="none" viewBox="0 0 16 16" className="w-3.5 h-3.5">
+              <path d="M3 5h10M6 5V3h4v2M6 7v5M10 7v5M4 5l1 8h6l1-8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -270,7 +426,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-1)" }}>Projetos</h1>
@@ -279,7 +434,6 @@ export default function ProjectsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* View toggle */}
           <div className="flex rounded-xl overflow-hidden p-0.5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
             {(["card", "list"] as const).map(v => (
               <button key={v} onClick={() => setViewP(v)}
@@ -303,7 +457,6 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* Create form */}
       {showForm && (
         <div className="rounded-2xl p-6 space-y-5"
           style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", boxShadow: "var(--shadow-glow)" }}>
@@ -337,11 +490,7 @@ export default function ProjectsPage() {
                   {COLORS.map(c => (
                     <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
                       className="w-6 h-6 rounded-full transition-transform hover:scale-110"
-                      style={{
-                        background: c,
-                        outline: form.color === c ? `2px solid ${c}` : "none",
-                        outlineOffset: "2px",
-                      }} />
+                      style={{ background: c, outline: form.color === c ? `2px solid ${c}` : "none", outlineOffset: "2px" }} />
                   ))}
                   <input type="color" value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
                     className="w-6 h-6 rounded-full cursor-pointer border-0 p-0 bg-transparent" title="Custom color" />
@@ -363,14 +512,13 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Projects grid/list */}
       {view === "card" ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {projects.map(p => <ProjectCardView key={p.id} project={p} onRefresh={load} />)}
         </div>
       ) : (
         <div className="space-y-2">
-          {projects.map(p => <ProjectListRow key={p.id} project={p} />)}
+          {projects.map(p => <ProjectListRow key={p.id} project={p} onRefresh={load} />)}
         </div>
       )}
 
