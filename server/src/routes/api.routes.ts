@@ -1572,7 +1572,9 @@ apiRoutes.patch("/chat-sessions/:id", async (req, res) => {
     if (messages      !== undefined) data.messages    = messages;
     if (projectSlug   !== undefined) data.projectSlug = projectSlug;
     if (projectName   !== undefined) data.projectName = projectName;
-    const session = await (prisma as any).chatSession.update({ where: { id: req.params.id }, data });
+    const count = await (prisma as any).chatSession.updateMany({ where: { id: req.params.id }, data });
+    if (count.count === 0) { res.status(404).json({ error: "Session not found" }); return; }
+    const session = await (prisma as any).chatSession.findUnique({ where: { id: req.params.id } });
     res.json(session);
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });

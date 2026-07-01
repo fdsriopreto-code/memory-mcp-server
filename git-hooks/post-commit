@@ -25,23 +25,41 @@ case "$COMMIT_MSG" in
     ;;
 esac
 
-# Diff stat (arquivos alterados)
+# Diff stat (arquivos alterados) — pode ter quebras de linha reais
 DIFF_STAT=$(git diff --stat HEAD~1 HEAD 2>/dev/null | tail -5)
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
 REPO_PATH=$(pwd)
 
+# ⚠️  Constrói o JSON usando node para escapar corretamente:
+# - quebras de linha no DIFF_STAT
+# - barras invertidas em REPO_PATH (Windows)
+# - aspas e caracteres especiais na mensagem do commit
+export _MCP_PROJECT="$PROJECT"
+export _MCP_MSG="$COMMIT_MSG"
+export _MCP_DIFF="$DIFF_STAT"
+export _MCP_BRANCH="$BRANCH"
+export _MCP_REPO="$REPO_PATH"
+
+PAYLOAD=$(node -e "
+const d = {
+  project:       process.env._MCP_PROJECT,
+  commitMessage: process.env._MCP_MSG,
+  diffStat:      process.env._MCP_DIFF,
+  branch:        process.env._MCP_BRANCH,
+  repoPath:      process.env._MCP_REPO,
+};
+process.stdout.write(JSON.stringify(d));
+" 2>/dev/null)
+
+# Se node não estiver disponível ou falhar, sai silenciosamente
+[ -z "$PAYLOAD" ] && exit 0
+
 # Envia para o brain (fire-and-forget — não bloqueia o commit)
-curl -s -o /dev/null -w "" \
+curl -s -o /dev/null \
   -X POST \
   -H "Authorization: Bearer ${MCP_KEY}" \
   -H "Content-Type: application/json" \
-  -d "{
-    \"project\":       \"${PROJECT}\",
-    \"commitMessage\": \"${COMMIT_MSG}\",
-    \"diffStat\":      \"${DIFF_STAT}\",
-    \"branch\":        \"${BRANCH}\",
-    \"repoPath\":      \"${REPO_PATH}\"
-  }" \
+  -d "$PAYLOAD" \
   "${MCP_URL}/hooks/git-learn" &
 
 exit 0

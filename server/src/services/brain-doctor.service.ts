@@ -188,6 +188,8 @@ Gere o plano de manutenção agora.`;
             }
 
             try {
+              const linkExists = await prisma.memoryLink.findFirst({ where: { fromId, toId, relation } });
+              if (linkExists) { result = "ℹ️ Link já existe"; break; }
               await prisma.memoryLink.create({ data: { fromId, toId, relation, weight: 1.0 } });
               stats.linksCreated++;
               result = `🔗 Link ${relation} criado`;

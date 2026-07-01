@@ -531,13 +531,12 @@ Responda APENAS com o JSON.`,
         },
       });
 
-      // Criar links SUPERSEDES da nova para cada original
-      for (const origId of memories.map(m => m.id)) {
-        try {
-          await prisma.memoryLink.create({
-            data: { fromId: newMem.id, toId: origId, relation: "SUPERSEDES" as never },
-          });
-        } catch {}
+      // Criar links SUPERSEDES da nova para cada original (skipDuplicates evita erros Prisma)
+      const supersedes = memories
+        .map(m => ({ fromId: newMem.id, toId: m.id, relation: "SUPERSEDES" as never }))
+        .filter(l => l.fromId !== l.toId);
+      if (supersedes.length > 0) {
+        await prisma.memoryLink.createMany({ data: supersedes, skipDuplicates: true });
       }
 
       return {

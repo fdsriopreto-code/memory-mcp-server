@@ -220,12 +220,9 @@ export function registerBrainTools(server: McpServer) {
       if (!from) return { content: [{ type: "text" as const, text: `Memória de origem (${fromId}) não encontrada.` }] };
       if (!to)   return { content: [{ type: "text" as const, text: `Memória de destino (${toId}) não encontrada.` }] };
 
-      try {
-        await prisma.memoryLink.create({ data: { fromId, toId, relation } });
-      } catch (e: any) {
-        if (e.code === "P2002") return { content: [{ type: "text" as const, text: `Link "${from.title}" ${relation} "${to.title}" já existe.` }] };
-        throw e;
-      }
+      const existing = await prisma.memoryLink.findFirst({ where: { fromId, toId, relation } });
+      if (existing) return { content: [{ type: "text" as const, text: `Link "${from.title}" ${relation} "${to.title}" já existe.` }] };
+      await prisma.memoryLink.create({ data: { fromId, toId, relation } });
 
       await logAudit(from.projectId, "brain_relate", { fromId, toId, relation }, `"${from.title}" → "${to.title}"`);
       return { content: [{ type: "text" as const, text: `🔗 Link criado: **"${from.title}"** --[${relation}]--> **"${to.title}"**` }] };
