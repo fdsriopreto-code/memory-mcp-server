@@ -135,9 +135,9 @@ async function runPendingMigrations() {
     ],
     [
       "brain_doctor_configs seed",
-      `INSERT INTO "brain_doctor_configs" ("enabled","frequency","model","projects","hour","updated_at")
-       SELECT FALSE,'weekly','gpt-4o','{}',3,NOW()
-       WHERE NOT EXISTS (SELECT 1 FROM "brain_doctor_configs")`,
+      `INSERT INTO "brain_doctor_configs" ("id","enabled","frequency","model","projects","hour","updated_at")
+       VALUES ('singleton',FALSE,'weekly','gpt-4o','{}',3,NOW())
+       ON CONFLICT ("id") DO NOTHING`,
     ],
   ];
 
